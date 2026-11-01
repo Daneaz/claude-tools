@@ -104,7 +104,7 @@ fi
 
 # 一行还是两行:取得到终端宽度且放不下才折行
 cols="${COLUMNS:-}"
-[ -z "$cols" ] && cols=$(stty size < /dev/tty 2>/dev/null | awk '{print $2}')
+[ -z "$cols" ] && cols=$({ stty size < /dev/tty; } 2>/dev/null | awk '{print $2}')
 line="$id${gauge:+  }$gauge"
 width=$(printf '%s' "$line" | sed "s/${E}\[[0-9;]*m//g" | wc -m | tr -d ' ')
 if [ -n "$gauge" ] && [ -n "$cols" ] && [ "$width" -gt $((cols - 4)) ]; then

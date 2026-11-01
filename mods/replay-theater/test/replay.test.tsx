@@ -435,21 +435,25 @@ test('band replay shrinks to maxRows', async ($, on) => {
   // 回放 view 的行：标题、清单行与省略行、diff 行与「还有」行、按钮，加 3 个空行。
   const viewRows = (keys: string[]) =>
     keys.filter(k => /^rt-(title|step-\d+|more-(above|below)|diff-.+|buttons)$/.test(k)).length + 3
-  for (const maxRows of [12, 16, 24]) {
+  // 给下层留 3 行：view ≤ maxRows - 3。最小 view 是 12 行（固定 5 + 清单 3 + diff 3 + 「还有」1），
+  // maxRows = 12 时扣完不够，按最小 view 画（12 行），这时只保证不小于最小值。
+  const MIN_VIEW = 12
+  for (const maxRows of [12, 15, 19, 27]) {
     await replay($, clock)
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows } })
     // 第 1 步（只有下省略行）与中间一步（上下都有省略行）都要放得下。
     for (const at of [0, 5]) {
       while (!(await textOf(ui, 'rt-title'))?.includes(`${at + 1}/10`)) await ui.press({ key: 'next' })
       const keys = await boxKeys(ui)
-      expect(viewRows(keys)).toBeLessThanOrEqual(maxRows)
+      expect(viewRows(keys)).toBeLessThanOrEqual(Math.max(maxRows - 3, MIN_VIEW))
+      if (maxRows - 3 < MIN_VIEW) expect(viewRows(keys)).toBe(MIN_VIEW)
       expect(keys.filter(k => /^rt-diff-\d+$/.test(k)).length).toBeGreaterThanOrEqual(3)
       expect(keys.filter(k => /^rt-(step-\d+|more-(above|below))$/.test(k)).length).toBeGreaterThanOrEqual(3)
       expect(keys).toContain(`rt-step-${at}`)
       expect(keys).toContain('rt-diff-more')
       expect(await ui.find({ key: 'low' })).toBeDefined()
     }
-    if (maxRows === 24) {
+    if (maxRows === 27) {
       // 宽裕时清单 7 步。
       expect((await boxKeys(ui)).filter(k => /^rt-step-\d+$/.test(k)).length).toBe(7)
     }

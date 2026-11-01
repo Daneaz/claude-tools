@@ -17,6 +17,8 @@ const MIN_LIST = 3
 const MIN_DIFF = 3
 // 回放视图里清单与 diff 之外的固定行：标题、三处空行、按钮。
 const FIXED_ROWS = 5
+// band 内展开时给下层（quick-tools、Blast Radius 等）至少留的行数，同 task-progress。
+const RESERVED = 3
 const PANE_COLUMNS = 72
 
 // 紫与 quick-tools 的模型紫一致；其余用 theme key，跟着终端主题走。
@@ -144,12 +146,14 @@ async function replayView($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pa
   }
 
   // band 内按 maxRows 收缩：先扣固定行，清单（含省略行，最少 3 行）先取，留够 diff 的 3 行与「还有」行；
-  // 剩下的给 diff（含「还有」行）。pane 里清单 7 步、diff 12 行。
+  // 剩下的给 diff（含「还有」行）。预算是 maxRows 扣掉给下层留的 RESERVED 行；不够最小 view 时按最小 view 画。
+  // pane 里清单 7 步、diff 12 行。
+  const budget = maxRows - RESERVED
   const win = isBand
-    ? fitWindow(total, k, LIST_SIZE, Math.max(MIN_LIST, maxRows - FIXED_ROWS - MIN_DIFF - 1))
+    ? fitWindow(total, k, LIST_SIZE, Math.max(MIN_LIST, budget - FIXED_ROWS - MIN_DIFF - 1))
     : listWindow(total, k, LIST_SIZE)
   const listRows = win.end - win.start + (win.start > 0 ? 1 : 0) + (win.end < total ? 1 : 0)
-  const diffRows = isBand ? Math.max(MIN_DIFF + 1, maxRows - FIXED_ROWS - listRows) : MAX_DIFF_LINES + 1
+  const diffRows = isBand ? Math.max(MIN_DIFF + 1, budget - FIXED_ROWS - listRows) : MAX_DIFF_LINES + 1
   // diff 放得下就全画；放不下留一行给「还有 N 行」。
   const maxDiff = Math.min(MAX_DIFF_LINES, step.diff.length <= diffRows ? diffRows : diffRows - 1)
 

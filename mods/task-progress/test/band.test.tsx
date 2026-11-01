@@ -309,7 +309,7 @@ test('keeps lower band', async ($, on) => {
 
 for (const [name, props, surface] of [
   ['quiet on survey', { ...BAND.props, hasSurvey: true }, 'terminal'],
-  ['other surfaces pass', BAND.props, 'desktop'],
+  ['other surfaces pass', BAND.props, 'vscode'],
 ] as const) {
   test(name, async ($, on) => {
     engine(on, { lower: true })
@@ -321,6 +321,19 @@ for (const [name, props, surface] of [
     await ui.unmount()
   })
 }
+
+// 桌面端也画同一条 band（AbovePrompt 只在 terminal 与 desktop 上出现）。
+test('draws on desktop too', async ($, on) => {
+  engine(on, { lower: true })
+  await write($, todos('completed', 'in_progress', 'pending'))
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  expect((await ui.find({ key: 'toggle' }))?.text).toContain('2/3')
+  expect(await ui.find({ key: 'low' })).toBeDefined()
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'task-1' })).toBeDefined()
+  await ui.unmount()
+})
 
 test('animates only while open with a running task', async ($, on) => {
   const { clock } = engine(on)

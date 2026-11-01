@@ -22,7 +22,7 @@
 - 真实的百分比进度：计划工具里只有三种状态（待办 / 进行中 / 完成），进度条是「虚拟」的（用户决定）。
 - 工具级细节（正在读哪个文件、跑哪条命令）、每个任务的耗时和操作次数：用户明确不要。
 - 跨 session 保留进度：只看当前 session。
-- terminal 以外的 surface（desktop / vscode / mobile 直接 `next(e)`）。
+- vscode / mobile surface（直接 `next(e)`）。desktop 也画（用户决定，2026-11-02）：`AbovePrompt` 只在 terminal 与 desktop 上出现；桌面端是比例字体，所有 Text 用 `mono` 保证列对齐。
 
 ## 反目标（做到了也算失败）
 

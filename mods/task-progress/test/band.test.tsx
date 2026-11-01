@@ -1,4 +1,4 @@
-import type { On, ToolCallResult } from 'claude-code'
+import type { AgentInfo, On, ToolCallResult } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
@@ -33,7 +33,7 @@ function todos(...statuses: Status[]): Todo[] {
 }
 
 // 充当 engine：计划工具按工具名回结果，TaskCreate 依次发 id 1、2、…；
-// TaskUpdate 的回复可由测试换掉；AbovePrompt 默认是 engine 自己（什么都不画），
+// TaskUpdate 的回复与 agent.list 的回复可由测试换掉（默认：派过的都在运行）；AbovePrompt 默认是 engine 自己（什么都不画），
 // `lower` 时换成一个更低层 mod 画的 `low`。
 function engine(on: On, { lower = false } = {}) {
   const clock = mock.clock(on)
@@ -41,7 +41,9 @@ function engine(on: On, { lower = false } = {}) {
     taskUpdate: (taskId: string): ToolCallResult => ({
       result: { success: true, taskId, updatedFields: ['status'] },
     }),
+    agents: (): AgentInfo[] => spawned.map(id => ({ id, description: 'd', type: 'general-purpose', status: 'running' })),
   }
+  const spawned: string[] = []
   let lastId = 0
   on('tool.call', (_, e) => {
     switch (e.tool) {
@@ -56,7 +58,12 @@ function engine(on: On, { lower = false } = {}) {
         return { result: {} }
     }
   })
-  on('agent.spawn', () => ({ model: 'm', agentId: 'a1' }))
+  on('agent.spawn', () => {
+    spawned.push('a1')
+
+    return { model: 'm', agentId: 'a1' }
+  })
+  on('agent.list', () => ({ value: replies.agents() }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('ui.render', ($, e) => {
@@ -382,5 +389,119 @@ test('long text stays on one line', async ($, on) => {
   expect(await textOf(ui, 'task-1')).toContain('…')
   expect(textWidth(((await textOf(ui, 'task-0')) ?? '').split('▰')[0] ?? '')).toBe(5 + name + 2)
   expect(textWidth(((await textOf(ui, 'task-2')) ?? '').split('Next')[0] ?? '')).toBe(5 + name + 2 + 10 + 2)
+  // subagent 行的「运行中」与任务行的描述列同一列。
+  expect(textWidth(((await textOf(ui, 'agent-a1')) ?? '').split('运行中')[0] ?? '')).toBe(5 + name + 2 + 10 + 2)
+  await ui.unmount()
+})
+
+test('long plan respects maxRows and keeps lower band', async ($, on) => {
+  engine(on, { lower: true })
+  const statuses: Status[] = ['completed', 'completed', 'completed', 'completed', 'completed', 'in_progress']
+  for (let i = 0; i < 14; i++) statuses.push('pending')
+  await write($, todos(...statuses))
+  await $.agent.spawn(SPAWN)
+  const maxRows = 10
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows } })
+  await ui.press({ key: 'toggle' })
+
+  // 收起行 1 + 空行 1 + 给下层留 3 行：清单（含 subagent 行与「另有」行）最多 maxRows - 5 行。
+  const keys = (await boxKeys(ui)).filter(k => /^(task|agent|more)-/.test(k))
+  expect(keys.length).toBeLessThanOrEqual(maxRows - 5)
+  // 以当前任务为中心：进行中的任务在，上下都有省略汇总。
+  expect(keys).toContain('task-5')
+  expect(keys).toContain('more-above')
+  expect(keys).toContain('more-below')
+  expect(await textOf(ui, 'more-above')).toMatch(/… 另有 \d+ 个/)
+  expect(await ui.find({ key: 'low' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('emptied plan starts collapsed', async ($, on) => {
+  const { replies } = engine(on)
+  // TodoWrite([]) 清空。
+  await write($, todos('in_progress', 'pending'))
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'task-0' })).toBeDefined()
+  await write($, [])
+  expect(await ui.find({ key: 'toggle' })).toBeUndefined()
+  await write($, todos('in_progress'))
+  expect(await ui.find({ key: 'task-0' })).toBeUndefined()
+
+  // 全部 deleted。
+  await write($, [])
+  await $.tool.call({ tool: 'TaskCreate', subject: '查代码', description: 'd' })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'task-1' })).toBeDefined()
+  replies.taskUpdate = taskId => ({ result: { success: true, taskId, updatedFields: ['status'] } })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'deleted' })
+  expect(await ui.find({ key: 'toggle' })).toBeUndefined()
+  await $.tool.call({ tool: 'TaskCreate', subject: '写代码', description: 'd' })
+  expect(await ui.find({ key: 'task-2' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('new plan after finished starts collapsed', async ($, on) => {
+  engine(on)
+  await $.tool.call({ tool: 'TaskCreate', subject: '查代码', description: 'd' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' })
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'task-1' })).toBeDefined()
+
+  // 没提交 prompt 就开了新计划：旧的被清掉，新的从收起开始。
+  await $.tool.call({ tool: 'TaskCreate', subject: '写代码', description: 'd' })
+  expect(await textOf(ui, 'toggle')).toContain('1/1')
+  expect(await ui.find({ key: 'task-2' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('timer stops itself when state resets under it', async ($, on) => {
+  const { clock } = engine(on)
+  let ticks = 0
+  let cleared = false
+  on('state.set', { plugin: 'task-progress', key: 'frame' }, (_, e, next) => {
+    ticks += 1
+
+    return next(e)
+  })
+  // 模拟 /clear：state 回到默认值（收起），本 mod 的 toggle / changePlan 都没走。
+  on('state.get', { plugin: 'task-progress', key: 'isOpen' }, (_, e, next) =>
+    cleared ? { value: { value: false, version: 0 } } : next(e),
+  )
+  await write($, todos('in_progress'))
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  await clock.advance(160)
+  expect(ticks).toBe(1)
+
+  cleared = true
+  await clock.advance(1000)
+  expect(ticks).toBe(1)
+  await ui.unmount()
+})
+
+test('prompt drops subagents that are no longer running', async ($, on) => {
+  const { replies } = engine(on)
+  await write($, todos('in_progress'))
+  await $.agent.spawn(SPAWN)
+  const ui = await $.ui.mount(BAND)
+  expect(await textOf(ui, 'toggle')).toContain('1 个 subagent')
+
+  // 还在跑：留着。
+  await submit($)
+  expect(await textOf(ui, 'toggle')).toContain('1 个 subagent')
+
+  // turn.complete 漏了，但 agent.list 说已结束：下一次 prompt 时去掉。
+  replies.agents = () => [{ id: 'a1', description: 'd', type: 'general-purpose', status: 'killed' }]
+  await submit($)
+  expect(await textOf(ui, 'toggle')).not.toContain('subagent')
+
+  // 列表里已没有它的也去掉。
+  await $.agent.spawn(SPAWN)
+  expect(await textOf(ui, 'toggle')).toContain('1 个 subagent')
+  replies.agents = () => []
+  await submit($)
+  expect(await textOf(ui, 'toggle')).not.toContain('subagent')
   await ui.unmount()
 })

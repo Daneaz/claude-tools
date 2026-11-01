@@ -134,3 +134,21 @@ export function fit(text: string, columns: number): string {
   const cut = truncate(text, columns)
   return cut + ' '.repeat(Math.max(0, columns - textWidth(cut)))
 }
+
+// 清单超出预算时，取以 focus 为中心的一段 [start, end)；被省略的上方 / 下方各占一行汇总。
+// 总行数（含汇总行）不超过 budget；budget 太小放不下汇总行时只留焦点所在的行、不画汇总。
+export function windowRows(
+  total: number,
+  focus: number,
+  budget: number,
+): { start: number; end: number; showAbove: boolean; showBelow: boolean } {
+  if (total <= budget) return { start: 0, end: total, showAbove: false, showBelow: false }
+  for (let w = budget; w >= 1; w--) {
+    const start = Math.min(Math.max(0, focus - Math.floor((w - 1) / 2)), total - w)
+    const end = start + w
+    const showAbove = start > 0
+    const showBelow = end < total
+    if (w + Number(showAbove) + Number(showBelow) <= budget) return { start, end, showAbove, showBelow }
+  }
+  return { start: focus, end: focus + 1, showAbove: false, showBelow: false }
+}

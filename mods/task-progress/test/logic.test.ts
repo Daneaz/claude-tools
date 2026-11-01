@@ -10,6 +10,7 @@ import {
   sweep,
   textWidth,
   truncate,
+  windowRows,
 } from '../hooks/logic'
 import type { Plan, Task, TaskStatus } from '../hooks/logic'
 
@@ -43,6 +44,7 @@ test('create after finished starts fresh', async () => {
   const done = planOf(['一', 'completed'], ['二', 'completed'], ['三', 'completed'])
   const next = applyTaskCreate(done, '4', '新任务')
   expect(next.tasks.length).toBe(1)
+  expect(next.tasks[0]?.id).toBe('4')
   const s = summarize(next)
   expect(s.position).toBe(1)
   expect(s.total).toBe(1)
@@ -142,4 +144,30 @@ test('fit cuts then pads to the column', async () => {
   expect(fit('一二三四五六', 8)).toBe('一二三… ')
   expect(textWidth(fit('一二三四五六', 8))).toBe(8)
   expect(fit('abc', 3)).toBe('abc')
+})
+
+test('window shows all when it fits', async () => {
+  expect(windowRows(5, 2, 5)).toEqual({ start: 0, end: 5, showAbove: false, showBelow: false })
+})
+
+test('window centers on focus within budget', async () => {
+  // 10 行、焦点 5、预算 5：上下各一行「另有」，中间 3 行以焦点为中心。
+  expect(windowRows(10, 5, 5)).toEqual({ start: 4, end: 7, showAbove: true, showBelow: true })
+  // 焦点在开头：没有上方汇总行，多出一行给清单。
+  expect(windowRows(10, 0, 5)).toEqual({ start: 0, end: 4, showAbove: false, showBelow: true })
+  // 焦点在末尾。
+  expect(windowRows(10, 9, 5)).toEqual({ start: 6, end: 10, showAbove: true, showBelow: false })
+})
+
+test('window never exceeds budget', async () => {
+  for (const total of [1, 3, 8, 20]) {
+    for (let budget = 1; budget <= 10; budget++) {
+      for (let focus = 0; focus < total; focus++) {
+        const w = windowRows(total, focus, budget)
+        const used = w.end - w.start + Number(w.showAbove) + Number(w.showBelow)
+        expect(used).toBeLessThanOrEqual(Math.max(budget, 1))
+        expect(focus >= w.start && focus < w.end).toBe(true)
+      }
+    }
+  }
 })

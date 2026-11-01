@@ -11,18 +11,19 @@ import {
   sweep,
   textWidth,
   truncate,
+  windowRows,
 } from './logic'
 import type { Plan, Subagent, Task } from './logic'
 
-// 绿色用 theme key，跟着终端主题走；蓝色没有语义对口的 key，用 hex。
+// 颜色都用 theme key，跟着终端主题走。
 const GREEN = 'success'
-const BLUE = '#8ab4ff'
+const BLUE = 'suggestion'
 // 完成的任务名。
-const DONE_NAME = '#55606e'
+const DONE_NAME = 'inactive'
 // 未开始的胶囊，也是进度条的暗轨。
-const DARK = '#3b424d'
+const DARK = 'subtle'
 // subagent 的说明文字。
-const NOTE = '#6b7480'
+const NOTE = 'inactive'
 
 const BAR = 10
 // 展开行：`  ✓  ` 前缀 5 列，列与列之间空 2 列。
@@ -32,6 +33,11 @@ const GAP = 2
 const AGENT_INDENT = 7
 const AGENT_TAG = '↳ subagent'
 const RUNNING = '运行中'
+// 展开时给下层（quick-tools 等）至少留的行数；收起行与空行各占 1 行。
+const RESERVED = 3
+const HEAD = 2
+// 还在跑的 subagent 状态（AgentStatus）；其余（completed / failed / killed）算已结束。
+const ALIVE = ['pending', 'running', 'waiting', 'idle']
 
 const EMPTY: Plan = { tasks: [] }
 const plan = atom({ plugin: 'task-progress', key: 'plan' } as const, EMPTY)
@@ -44,19 +50,46 @@ const isRunning = (t: Task) => t.status === 'in_progress'
 // 扫动亮光的计时器：只在展开且有进行中任务时走。模块重载时旧环境连同计时器一起丢弃。
 let timer: Timer | undefined
 
+async function shouldAnimate($: EngineInterface) {
+  return (await read($, isOpen)) && (await read($, plan)).tasks.some(isRunning)
+}
+
+// 每次 tick 先自检：不该走了（收起、没有进行中任务、/clear 后 state 回到默认）就停掉自己。
+// 这样即使 syncTimer 交错起出多余的计时器，或状态绕过 syncTimer 变化，也不会一直空转。
+async function tick($: EngineInterface, self: () => Timer | undefined) {
+  if (!(await shouldAnimate($))) {
+    const t = self()
+    t?.cancel()
+    if (timer === t) timer = undefined
+    return
+  }
+  await update($, frame, f => f + 1)
+}
+
 // 按当前状态起停计时器；toggle 和每次计划变化后都调一次。
 async function syncTimer($: EngineInterface) {
-  const shouldRun = (await read($, isOpen)) && (await read($, plan)).tasks.some(isRunning)
+  const shouldRun = await shouldAnimate($)
   if (shouldRun && timer === undefined) {
-    timer = $.clock.every(160, () => void update($, frame, f => f + 1))
+    const t: Timer = $.clock.every(160, () => void tick($, () => t).catch(() => {}))
+    timer = t
   } else if (!shouldRun && timer !== undefined) {
     timer.cancel()
     timer = undefined
   }
 }
 
+// 计划变空，或上一份已全部完成而这次变化开了新计划（变成未完成），都收起。
 async function changePlan($: EngineInterface, change: (p: Plan) => Plan) {
-  await update($, plan, change)
+  let wasFinished = false
+  let now: Plan = EMPTY
+  await update($, plan, p => {
+    wasFinished = summarize(p).isFinished
+    now = change(p)
+    return now
+  })
+  if (now.tasks.length === 0 || (wasFinished && !summarize(now).isFinished)) {
+    await update($, isOpen, () => false)
+  }
   await syncTimer($)
 }
 
@@ -113,11 +146,18 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // 计划全部完成后，下一次提交 prompt 时清空，展开状态回到收起。
+  // 计划全部完成后，下一次提交 prompt 时清空（changePlan 里随之收起）。
+  // 顺带自愈 subagent 列表：漏了 turn.complete 的、已不在运行的，按 $.agent.list() 去掉。
   on('prompt.submit', async ($, e, next) => {
     if (summarize(await read($, plan)).isFinished) {
-      await update($, isOpen, () => false)
       await changePlan($, clearIfFinished)
+    }
+    if ((await read($, subagents)).length > 0) {
+      const agents = await $.agent.list().catch(() => undefined)
+      if (agents !== undefined) {
+        const alive = new Set(agents.filter(a => ALIVE.includes(a.status)).map(a => a.id))
+        await update($, subagents, list => list.filter(s => alive.has(s.agentId)))
+      }
     }
 
     return next(e)
@@ -174,8 +214,14 @@ export const register: Register = on => {
 
     // 展开的清单：名称列 = 最长任务名（上限 40%），进度条 10 格，描述占剩下的宽度。
     const nameWidth = Math.min(Math.max(...p.tasks.map(t => textWidth(t.title))), Math.floor(columns * 0.4))
-    const noteWidth = columns - PREFIX - nameWidth - GAP - BAR - GAP
-    const agentWidth = columns - AGENT_INDENT - textWidth(AGENT_TAG) - GAP - GAP - textWidth(RUNNING)
+    const noteColumn = PREFIX + nameWidth + GAP + BAR + GAP
+    const noteWidth = columns - noteColumn
+    // subagent 行的说明从 `↳ subagent  ` 之后开始；「运行中」对齐到任务行的描述列。
+    // 描述列太靠左（放不下说明）或太靠右（放不下「运行中」）时，退回紧跟说明之后。
+    const agentStart = AGENT_INDENT + textWidth(AGENT_TAG) + GAP
+    const alignedWidth = noteColumn - GAP - agentStart
+    const isAligned = alignedWidth >= 6 && noteWidth >= textWidth(RUNNING)
+    const agentWidth = isAligned ? alignedWidth : columns - agentStart - GAP - textWidth(RUNNING)
 
     const taskRow = (t: Task) => {
       const name = fit(t.title, nameWidth)
@@ -231,7 +277,9 @@ export const register: Register = on => {
       <Box key={`agent-${a.agentId}`}>
         <Text>{' '.repeat(AGENT_INDENT)}</Text>
         <Text dimColor>{AGENT_TAG}</Text>
-        <Text color={NOTE}>{`  ${truncate(a.description, agentWidth)}`}</Text>
+        <Text color={NOTE}>
+          {`  ${isAligned ? fit(a.description, agentWidth) : truncate(a.description, agentWidth)}`}
+        </Text>
         <Text color={BLUE}>{`  ${RUNNING}`}</Text>
       </Box>
     )
@@ -239,10 +287,34 @@ export const register: Register = on => {
     // subagent 行：恰好一个任务进行中时挂在它下面，否则统一列在最后。
     const running = p.tasks.filter(isRunning)
     const host = running.length === 1 ? running[0]?.id : undefined
-    const rows = p.tasks.flatMap(t => (t.id === host ? [taskRow(t), ...subs.map(agentRow)] : [taskRow(t)]))
+    // 焦点 = summarize 选出的当前任务（第一个进行中，否则第一个 pending）在行里的下标。
+    const current = p.tasks[s.position - 1]?.id
+    let focus = 0
+    let rowCount = 0
+    const all = p.tasks.flatMap(t => {
+      if (t.id === current) focus = rowCount
+      const group = t.id === host ? [taskRow(t), ...subs.map(agentRow)] : [taskRow(t)]
+      rowCount += group.length
+      return group
+    })
     if (host === undefined) {
-      rows.push(...subs.map(agentRow))
+      all.push(...subs.map(agentRow))
     }
+
+    // 遵守 maxRows：收起行、空行之外再给下层留 RESERVED 行，剩下的给清单；
+    // 放不下时只画以当前任务为中心的一段，上下被省略的各用一行 dim 的汇总。
+    const budget = Math.max(1, e.props.maxRows - HEAD - RESERVED)
+    const win = windowRows(all.length, focus, budget)
+    const more = (key: string, n: number) => (
+      <Box key={key}>
+        <Text dimColor>{`${' '.repeat(PREFIX)}… 另有 ${n} 个`}</Text>
+      </Box>
+    )
+    const rows = [
+      win.showAbove && more('more-above', win.start),
+      ...all.slice(win.start, win.end),
+      win.showBelow && more('more-below', all.length - win.end),
+    ]
 
     // 按下时切换；计时器随之起停。
     const toggle = async () => {

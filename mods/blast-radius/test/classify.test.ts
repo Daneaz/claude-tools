@@ -70,3 +70,12 @@ test('prefixes', async () => {
   expect(classify('env rm -rf x')?.kind).toBe('rm')
   expect(classify('nohup rm -rf x')?.kind).toBe('rm')
 })
+
+test('more forms from the original', async () => {
+  expect(classify('git restore --staged .')).toBe(null)
+  expect(classify('\\rm -rf x')?.kind).toBe('rm')
+  expect(classify('nice -n 10 rm -rf x')?.kind).toBe('rm')
+  expect(classify('git -c k=v reset --hard')?.kind).toBe('git-reset')
+  expect(classify('(cd sub && rm -rf x) > log')?.dir).toBe('sub')
+  expect(classify('rake db:migrate:status')).toBe(null)
+})

@@ -361,3 +361,24 @@ test('the band spans its width so the button sits at the right', async ($, on) =
   expect(root?.props.alignItems).toBe('flex-end')
   await ui.unmount()
 })
+
+test('effort is highlighted from saved settings before any model request', async ($, on) => {
+  engine(on)
+  on('settings.read', () => ({ value: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' } } } }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount(BAND)
+  expect(await toggleText(ui)).toBe('⚡ Opus · medium')
+  await ui.unmount()
+})
+
+test('after a model switch the new model\'s saved effort shows at once', async ($, on) => {
+  engine(on)
+  on('settings.read', () => ({
+    value: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' }, 'claude-haiku-5-5': { effortLevel: 'high' } } },
+  }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.classic.PostModelSwitch({ from_model: 'claude-opus-5-5', to_model: 'claude-haiku-5-5', source: 'picker' } as never)
+  const ui = await $.ui.mount(BAND)
+  expect(await toggleText(ui)).toBe('⚡ Haiku · high')
+  await ui.unmount()
+})

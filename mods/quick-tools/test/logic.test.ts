@@ -6,6 +6,7 @@ import {
   applyCommandResult,
   buttonLabel,
   modelKeyOf,
+  savedEffort,
   supportedEfforts,
 } from '../hooks/logic'
 import type { Status } from '../hooks/logic'
@@ -163,4 +164,14 @@ test('supportedEfforts: every 2.1.316 model takes all five levels', async () => 
     expect(supportedEfforts(key)).toEqual(EFFORTS)
   }
   expect(supportedEfforts(null)).toEqual(EFFORTS)
+})
+
+test('savedEffort reads the per-model level from settings.modelSettings', async () => {
+  const ms = { 'claude-opus-5-5': { effortLevel: 'medium' }, 'claude-haiku-5-5': { effortLevel: 'high' } }
+  expect(savedEffort(ms, 'opus')).toBe('medium')
+  expect(savedEffort(ms, 'haiku')).toBe('high')
+  expect(savedEffort(ms, 'sonnet')).toBeNull()
+  expect(savedEffort(ms, null)).toBeNull()
+  expect(savedEffort(undefined, 'opus')).toBeNull()
+  expect(savedEffort({ 'claude-opus-5-5': { effortLevel: 'turbo' } }, 'opus')).toBeNull()
 })

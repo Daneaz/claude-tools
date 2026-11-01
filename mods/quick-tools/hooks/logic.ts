@@ -42,6 +42,21 @@ export function modelKeyOf(idOrName: string): ModelKey | null {
   return MODELS.find(m => name.includes(m.key))?.key ?? null
 }
 
+// settings.json 的 modelSettings 按完整 id 存每个模型的 effortLevel（如 claude-opus-5-5 → medium）。
+export function savedEffort(modelSettings: unknown, model: ModelKey | null): Effort | null {
+  if (model === null || typeof modelSettings !== 'object' || modelSettings === null) {
+    return null
+  }
+  for (const [id, entry] of Object.entries(modelSettings)) {
+    const level = (entry as { effortLevel?: unknown } | null)?.effortLevel
+    if (modelKeyOf(id) === model) {
+      return EFFORTS.find(x => x === level) ?? null
+    }
+  }
+
+  return null
+}
+
 export function supportedEfforts(_model: ModelKey | null): readonly Effort[] {
   return EFFORTS
 }

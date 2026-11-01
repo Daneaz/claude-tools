@@ -7,6 +7,7 @@ import {
   applyCommandResult,
   buttonLabel,
   modelKeyOf,
+  savedEffort,
   supportedEfforts,
 } from './logic'
 import type { Status } from './logic'
@@ -45,12 +46,26 @@ async function run(
 
   const { text } = r
   await update($, status, s => (text ? applyCommandResult(s, command, args, text) : asked(s)))
+  await fillSavedEffort($)
+}
+
+// effort 未知时（开局、切模型后）先用 settings 里该模型存的档位，下一步主循环再按实际值校正。
+async function fillSavedEffort($: EngineInterface) {
+  const s = await read($, status)
+  if (s.effort !== null) {
+    return
+  }
+  const effort = savedEffort(await $.settings.read({ key: 'modelSettings' }).catch(() => undefined), s.model)
+  if (effort !== null) {
+    await update($, status, st => (st.effort === null ? { ...st, effort } : st))
+  }
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const model = modelKeyOf(await $.session.model())
     await update($, status, s => ({ ...s, model }))
+    await fillSavedEffort($)
 
     return next(e)
   })
@@ -75,6 +90,7 @@ export const register: Register = on => {
   on('classic.PostModelSwitch', async ($, e, next) => {
     const model = modelKeyOf(e.to_model)
     await update($, status, s => ({ ...s, model: model ?? s.model, effort: null }))
+    await fillSavedEffort($)
 
     return next(e)
   })
@@ -83,6 +99,7 @@ export const register: Register = on => {
   on('command.run', { command: 'model' }, async ($, e, next) => {
     const r = await next(e)
     await update($, status, s => applyCommandResult(s, 'model', e.args, r.text ?? ''))
+    await fillSavedEffort($)
 
     return r
   })

@@ -15,7 +15,7 @@ SubAgent View 是一个 Claude Code mod：对话右侧的一个 pane，由用户
 - 结束的 subagent（完成 / 失败 / 被停）缩成一行，放到底部「已结束」下。
 - 用 `/subagents` 命令开关 pane；quick-tools 面板在 ULTRA 下面加一个 `◧ SubAgents` 开关，效果一样。
 - 不需要模型配合：只观察模型本来就会做的事（派 agent、subagent 列计划、调工具）。
-- terminal 与 desktop 都画（desktop 上 Text 用 `mono` 保证列对齐，文案与 terminal 一致）；vscode / mobile 直接 `next(e)`。用户 2026-11-02 要求支持桌面 app。
+- terminal 与 desktop 都画（desktop 上 Text 用 `mono` 保证列对齐，文案与 terminal 一致）；vscode / mobile 直接 `next(e)`。用户 2026-11-02 要求支持桌面 app。 quick-tools 按用户决定只在终端显示，所以桌面 app 里用 `/subagents` 开关 pane。
 
 ## 非目标
 

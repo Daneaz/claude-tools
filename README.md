@@ -146,7 +146,7 @@ claude plugin install task-progress@claude-tools
 
 ### subagent-view
 
-对话右侧的一个 pane，显示主会话派出的每个 subagent：顶部总览在跑 / 完成 / 失败数、合计剩余步数和预计剩余时间；每个在跑的 subagent 显示任务说明、已跑时长、它自己计划的进度（`3/7`、剩几步、预计剩余）和当前在做的那一步；结束的缩成一行放到底部「已结束」下。用 `/subagents` 开关 pane（默认关闭）；与 quick-tools 同时安装时，quick-tools 面板里的 ` ◧ SubAgents ` 开关效果相同。支持终端与 Claude 桌面 app（VS Code 扩展里不画）。
+对话右侧的一个 pane，显示主会话派出的每个 subagent：顶部总览在跑 / 完成 / 失败数、合计剩余步数和预计剩余时间；每个在跑的 subagent 显示任务说明、已跑时长、它自己计划的进度（`3/7`、剩几步、预计剩余）和当前在做的那一步；结束的缩成一行放到底部「已结束」下。用 `/subagents` 开关 pane（默认关闭）；与 quick-tools 同时安装时，quick-tools 面板里的 ` ◧ SubAgents ` 开关效果相同（quick-tools 只在终端显示）。pane 支持终端与 Claude 桌面 app（VS Code 扩展里不画），桌面 app 里用 `/subagents` 开关。
 
 ```
 SubAgent View          3 在跑  1 完成  1 失败

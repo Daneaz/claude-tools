@@ -84,6 +84,17 @@ test('rm missing path', async () => {
   expect(report.lines).toEqual([])
 })
 
+test('rm -rf ./build/ lists clean paths', async () => {
+  // 脚本给相对路径再加一层 ./，find 输出 ././build/a.js；列表里去掉所有前导 ./
+  const { run, calls } = stub([['bash -c', { stdout: '2 2048 1\n././build/a.js\n././build/sub/b.js\n' }]])
+  const report = await measure(run, rmRisk('./build/'), '/work')
+  expect(calls[0]?.argv.slice(3)).toEqual(['blast-radius', './build/'])
+  expect(report.lines).toEqual([
+    { mark: '−', text: 'build/a.js' },
+    { mark: '−', text: 'build/sub/b.js' },
+  ])
+})
+
 test('rm with no targets does not run anything', async () => {
   const { run, calls } = stub([])
   const report = await measure(run, rmRisk(), '/work')

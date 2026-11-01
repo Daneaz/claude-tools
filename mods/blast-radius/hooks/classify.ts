@@ -1,3 +1,6 @@
+// Copyright 2026 Anthropic PBC
+// SPDX-License-Identifier: Apache-2.0
+//
 // 命令文本 → Risk | null。逐段移植自 claude-code-playground 的 Blast Radius（Apache-2.0）
 import type { Risk } from '../types'
 

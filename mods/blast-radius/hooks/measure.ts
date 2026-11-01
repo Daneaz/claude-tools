@@ -1,3 +1,6 @@
+// Copyright 2026 Anthropic PBC
+// SPDX-License-Identifier: Apache-2.0
+//
 // Risk + cwd → Report：量出危险命令会影响什么。移植自 claude-code-playground 的 Blast Radius（Apache-2.0）
 // 外部命令一律经注入的 run 按 argv 执行（无 shell 拼接），路径只作参数
 import type { Report, ReportLine, Risk } from '../types'
@@ -82,7 +85,7 @@ async function measureRm(run: Run, risk: RmRisk, cwd: string): Promise<Report> {
     summary: `删除 ${files} 个文件`,
     count: files,
     extra: size(bytes),
-    lines: rest.map((l) => ({ mark: '−', text: l.replace(/^\.\//, '') })),
+    lines: rest.map((l) => ({ mark: '−', text: l.replace(/^(\.\/)+/, '') })),
     more: Math.max(0, files - rest.length),
     note: `路径：${paths}`,
   }

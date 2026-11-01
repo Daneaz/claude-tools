@@ -1,3 +1,6 @@
+// Copyright 2026 Anthropic PBC
+// SPDX-License-Identifier: Apache-2.0
+//
 // Blast Radius：拦下危险的 Bash 命令，量出影响，等用户「执行 / 取消」。
 // 移植自 claude-code-playground 的 Blast Radius（Apache-2.0），外观换成无框 + 琥珀左竖线。
 //
@@ -16,6 +19,8 @@ const POLL_SECONDS = '0.25'
 const HOLD_LIMIT_MS = 600_000
 // 规模胶囊最多画几个
 const CAPSULES = 10
+// band 给兄弟 mod 留的行数（同 task-progress 的 RESERVED）
+const RESERVED = 3
 
 const AMBER = 'warning'
 const RED = 'error'
@@ -134,9 +139,21 @@ export const holdBash: MatchedHook<'tool.call', { tool: 'Bash' }> = async ($, e,
   return refusal(decision === null ? 'no answer was recorded' : WHY[decision], summary)
 }
 
+/** 用户手动关掉 pane（关闭标记或按键）而还没决定：当作取消，免得没有 UI 干等 10 分钟。
+ * 本 mod 自己 finally 里的 $.ui.close 是 origin plugin，不走这里 */
+export const cancelOnClose: MatchedHook<'ui.close', { id: typeof PANE_ID }> = ($, e, next) => {
+  if (e.origin.kind === 'person' && held !== null && held.decision === null) {
+    held.decision = 'cancel'
+  }
+
+  return next(e)
+}
+
 export const register: Register = on => {
   // 兜底：hook 抛出或超预算时 engine 会替它调 next(e)，命令就跑了。没调过 next 就拒绝
   on('tool.call', { tool: 'Bash' }, holdBash).catch(async ($, e, next) => (next.called ? next(e) : refusal(WHY.error)))
+
+  on('ui.close', { id: PANE_ID }, cancelOnClose)
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, ($, e, next) => {
     if (held === null || held.report === null) {
@@ -163,16 +180,22 @@ function paneRows(report: Report): number {
   return Math.min(24, 6 + report.lines.length + (report.more ? 1 : 0) + (report.note ? 1 : 0))
 }
 
-/** band 行数有限：放不下就少列几行，省掉的并进「… 还有 N 个」，让按钮留在窗口里（band 只认窗口内按钮的数字键） */
-function fitList(report: Report, maxRows: number): { shown: number; more: number } {
+/**
+ * band 版列表的行数。band 超过 maxRows 只露出顶部一窗，数字键只认窗内的按钮；
+ * 兄弟 mod（task-progress 等）展开时只给下层留 RESERVED 行。所以总行数守住 maxRows - RESERVED，
+ * 前两行（标题、按钮）之外才给列表；放不下就少列，省掉的并进「… 还有 N 个」，连这一行也放不下就不列
+ */
+function fitBand(report: Report, maxRows: number): { shown: number; more: number } {
   const total = report.lines.length
   const more = report.more ?? 0
-  // 标题、影响、空行、按钮，加说明
-  const fixed = 4 + (report.note ? 1 : 0)
-  if (fixed + total + (more > 0 ? 1 : 0) <= maxRows) {
+  const room = maxRows - RESERVED - 2
+  if (total + (more > 0 ? 1 : 0) <= room) {
     return { shown: total, more }
   }
-  const shown = Math.min(total, Math.max(0, maxRows - fixed - 1))
+  if (room <= 0) {
+    return { shown: 0, more: 0 }
+  }
+  const shown = room - 1
 
   return { shown, more: more + total - shown }
 }
@@ -191,7 +214,7 @@ function targetPrefix(risk: Risk, text: string): string {
     return ''
   }
   for (const target of risk.targets) {
-    const base = target.replace(/^\.\//, '').replace(/\/+$/, '')
+    const base = target.replace(/^(\.\/)+/, '').replace(/\/+$/, '')
     if (base !== '' && text.startsWith(`${base}/`)) {
       return `${base}/`
     }
@@ -202,10 +225,14 @@ function targetPrefix(risk: Risk, text: string): string {
 
 type Table = Pick<ElementTable, 'Box' | 'Text' | 'Button'>
 
-/** 无框 + 琥珀左竖线的报告；band 版（给了 maxRows）去掉前两处空行，列表按 maxRows 截 */
+/**
+ * 无框 + 琥珀左竖线的报告。
+ * pane 版照 spec 行序：标题、空行、影响、空行、列表、还有、说明、空行、按钮。
+ * band 版（给了 maxRows）紧凑：标题行带摘要，第 2 行就是按钮（说明跟在按钮后），之后才是列表，不留空行
+ */
 function draw({ Box, Text, Button }: Table, state: Held, report: Report, maxRows?: number) {
   const isBand = maxRows !== undefined
-  const { shown, more } = isBand ? fitList(report, maxRows) : { shown: report.lines.length, more: report.more ?? 0 }
+  const { shown, more } = isBand ? fitBand(report, maxRows) : { shown: report.lines.length, more: report.more ?? 0 }
   const capsules = '▰'.repeat(Math.min(report.count ?? 0, CAPSULES))
   // 按钮只回答画出它们的那条命令，不管现在拦着的是哪条
   const decide = (choice: 'proceed' | 'cancel') => () => {
@@ -219,6 +246,24 @@ function draw({ Box, Text, Button }: Table, state: Held, report: Report, maxRows
       {content !== undefined && <Text wrap={wrap}>{content}</Text>}
     </Box>
   )
+  const title = [
+    <Text color={AMBER} weight="bold">⚠ 拦截</Text>,
+    '  ',
+    <Text weight="bold">{state.command.replace(/\s+/g, ' ').trim()}</Text>,
+  ]
+  const summary = [
+    <Text color={RED} weight="bold">{report.summary}</Text>,
+    report.extra !== undefined && <Text dimColor>{`  ${report.extra}`}</Text>,
+  ]
+  const buttons = (hint: string) => (
+    <Box key="br-buttons">
+      <Text color={AMBER}>{BAR}</Text>
+      <Button key="proceed" label="1 执行" hotkey="1" onPress={decide('proceed')} />
+      <Text>{'  '}</Text>
+      <Button key="cancel" label="2 取消" hotkey="2" autoFocus onPress={decide('cancel')} />
+      <Text dimColor wrap="truncate-end">{`   ${hint}`}</Text>
+    </Box>
+  )
   const lines = report.lines.slice(0, shown).map((line, i) => {
     const prefix = targetPrefix(state.risk, line.text)
 
@@ -230,32 +275,30 @@ function draw({ Box, Text, Button }: Table, state: Held, report: Report, maxRows
       line.text.slice(prefix.length),
     ])
   })
+  const moreRow = more > 0 && row('br-more', <Text dimColor>{`    … 还有 ${more} 个`}</Text>)
+
+  if (isBand) {
+    return (
+      <Box key="br" flexDirection="column">
+        {row('br-title', [...title, '   ', ...summary])}
+        {buttons(report.note ?? 'Claude 在等你决定')}
+        {lines}
+        {moreRow}
+      </Box>
+    )
+  }
 
   return (
     <Box key="br" flexDirection="column">
-      {row('br-title', [
-        <Text color={AMBER} weight="bold">⚠ 拦截</Text>,
-        '  ',
-        <Text weight="bold">{state.command.replace(/\s+/g, ' ').trim()}</Text>,
-      ])}
-      {!isBand && row('br-gap-1')}
-      {row('br-summary', [
-        capsules !== '' && <Text color={RED}>{`${capsules}  `}</Text>,
-        <Text color={RED} weight="bold">{report.summary}</Text>,
-        report.extra !== undefined && <Text dimColor>{`  ${report.extra}`}</Text>,
-      ])}
-      {!isBand && row('br-gap-2')}
+      {row('br-title', title)}
+      {row('br-gap-1')}
+      {row('br-summary', [capsules !== '' && <Text color={RED}>{`${capsules}  `}</Text>, ...summary])}
+      {row('br-gap-2')}
       {lines}
-      {more > 0 && row('br-more', <Text dimColor>{`    … 还有 ${more} 个`}</Text>)}
-      {report.note !== undefined && row('br-note', <Text dimColor>{`  ${report.note}`}</Text>, isBand ? 'truncate-end' : 'wrap')}
+      {moreRow}
+      {report.note !== undefined && row('br-note', <Text dimColor>{`  ${report.note}`}</Text>, 'wrap')}
       {row('br-gap-3')}
-      <Box key="br-buttons">
-        <Text color={AMBER}>{BAR}</Text>
-        <Button key="proceed" label="1 执行" hotkey="1" onPress={decide('proceed')} />
-        <Text>{'  '}</Text>
-        <Button key="cancel" label="2 取消" hotkey="2" autoFocus onPress={decide('cancel')} />
-        <Text dimColor>{'   Claude 在等你决定'}</Text>
-      </Box>
+      {buttons('Claude 在等你决定')}
     </Box>
   )
 }

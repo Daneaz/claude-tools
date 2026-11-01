@@ -5,7 +5,7 @@
 import type { On, PaneOpenArgs } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { holdBash } from '../hooks/register'
+import { cancelOnClose, holdBash } from '../hooks/register'
 
 const PANE = {
   plugin: 'blast-radius',
@@ -387,21 +387,92 @@ test('pane draws the report', async ($, on) => {
   await ui.unmount()
 })
 
-test('band fits maxRows', async ($, on) => {
-  const listed = Array.from({ length: 10 }, (_, i) => `./build/f${i}.js`).join('\n')
-  const w = engine(on, { placed: false, rmOut: `12 1153434 1\n${listed}\n` })
+// band 里的行（根 `br` 下、key 以 `br-` 开头的 Box），按文档顺序
+async function bandRows(ui: { findAll: (q: { type: string }) => Promise<{ key: string | undefined }[]> }) {
+  return (await ui.findAll({ type: 'Box' })).map(b => b.key ?? '').filter(k => k.startsWith('br-'))
+}
+
+const TEN = Array.from({ length: 10 }, (_, i) => `./build/f${i}.js`).join('\n')
+
+test('band is compact with buttons on the second row', async ($, on) => {
+  const w = engine(on, { placed: false, rmOut: `12 1153434 1\n${TEN}\n` })
   const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
   await w.clock.settle()
-  const maxRows = 9
-  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows } })
+  const ui = await $.ui.mount(BAND)
 
-  // 标题、影响、note、空行、按钮、「还有」共 6 行，剩 3 行给列表
-  expect(await ui.find({ key: 'br-line-2' })).toBeDefined()
-  expect(await ui.find({ key: 'br-line-3' })).toBeUndefined()
-  expect(await textOf(ui, 'br-more')).toBe('▎    … 还有 9 个')
-  expect(await ui.find({ key: 'proceed' })).toBeDefined()
+  // 第 1 行：标题 + 命令 + 摘要 + extra；第 2 行：按钮 + note；之后才是列表；没有空行
+  const rows = await bandRows(ui)
+  expect(rows.slice(0, 2)).toEqual(['br-title', 'br-buttons'])
+  expect(rows.filter(k => k.startsWith('br-gap'))).toEqual([])
+  expect(await textOf(ui, 'br-title')).toBe('▎⚠ 拦截  rm -rf build   删除 12 个文件  1.1 MB')
+  expect(await textOf(ui, 'br-buttons')).toBe('▎1 执行  2 取消   路径：build')
+  expect(rows[2]).toBe('br-line-0')
   await ui.press({ key: 'cancel' })
   await w.clock.advance(STEP)
   await call
   await ui.unmount()
+})
+
+test('band fits maxRows', async ($, on) => {
+  const w = engine(on, { placed: false, rmOut: `12 1153434 1\n${TEN}\n` })
+  const call = $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await w.clock.settle()
+
+  // 给兄弟 mod 留 3 行：总行数 ≤ max(maxRows - 3, 2)，按钮永远在第 2 行；
+  // 列表预算 = maxRows - 3 - 2，放不下就少列，省掉的并进「… 还有 N 个」
+  const counts: Record<number, { lines: number; more: string | undefined }> = {}
+  for (const maxRows of [3, 4, 5, 6, 7, 9, 12, 20]) {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows } })
+    const rows = await bandRows(ui)
+    expect(rows.length).toBeLessThanOrEqual(Math.max(maxRows - 3, 2))
+    expect(rows[1]).toBe('br-buttons')
+    expect(await ui.find({ key: 'proceed' })).toBeDefined()
+    counts[maxRows] = { lines: rows.filter(k => k.startsWith('br-line-')).length, more: await textOf(ui, 'br-more') }
+    await ui.unmount()
+  }
+  expect(counts[5]).toEqual({ lines: 0, more: undefined })
+  expect(counts[6]).toEqual({ lines: 0, more: '▎    … 还有 12 个' })
+  expect(counts[9]).toEqual({ lines: 3, more: '▎    … 还有 9 个' })
+  expect(counts[20]).toEqual({ lines: 10, more: '▎    … 还有 2 个' })
+
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'cancel' })
+  await w.clock.advance(STEP)
+  await call
+  await ui.unmount()
+})
+
+// 测试 engine 没法以「用户」身份关 pane（没有 $.ui.close，origin 由 engine 盖章），
+// 所以同 interrupt denies：在测试模块自己的实例里直接调 hold 与 ui.close 两个 hook
+test('closing the pane cancels', async () => {
+  const { host, $ } = fakeHost()
+  const first = fakeCall('rm -rf build')
+  let isDone = false
+  const held = Promise.resolve(holdBash($, first.e, first.next)).then(r => {
+    isDone = true
+
+    return r
+  })
+  await until(() => host.opens === 1)
+  const passed: string[] = []
+  const close = (kind: 'plugin' | 'person') => {
+    const e = { id: 'blast-radius', origin: { kind } } as unknown as Parameters<typeof cancelOnClose>[1]
+    const next = async () => {
+      passed.push(kind)
+    }
+
+    return cancelOnClose($, e, next as unknown as Parameters<typeof cancelOnClose>[2])
+  }
+
+  // 插件自己关的（本 mod finally 里那次就是 origin plugin）不算用户的决定
+  await close('plugin')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(isDone).toBe(false)
+
+  // 用户手动关掉 pane：当作取消，不再干等；关闭照常交给下层
+  await close('person')
+  const r = await held
+  expect(r.deny ?? '').toContain('the user pressed Cancel')
+  expect(first.call.ran).toBe(false)
+  expect(passed).toEqual(['plugin', 'person'])
 })

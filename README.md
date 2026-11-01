@@ -73,6 +73,33 @@ echo '{"cwd":"'"$PWD"'","model":{"display_name":"Opus"},"context_window":{"remai
 - macOS 与 Linux 均可用：重置时间先试 BSD `date -r`，失败再用 GNU `date -d @`。
 - 在 macOS 上开发和实测；Linux 分支由 `tests/test_statusline_date.sh` 用模拟的 GNU `date` 覆盖。
 
-## mods / skills
+## mods
+
+### quick-tools
+
+band 最右侧常驻一个按钮，点开即可一键切换模型 / effort / ultracode。
+
+```
+展开后的面板：
+┌ quick-tools ──────────┐
+│ model   ● opus         │
+│         ○ sonnet       │
+│         ○ haiku        │
+│ effort  low medium high│
+│ ultracode        [off] │
+└────────────────────────┘
+```
+
+安装（在终端会话里输入）：
+
+```
+/plugin install quick-tools --marketplace Daneaz/claude-tools
+```
+
+随后按 `y` 添加 marketplace，再选择 scope。
+
+注意：按钮的状态在切换模型后 effort 会显示 `?`，下一轮对话后自动更新；ultracode 开局显示为关。
+
+## skills
 
 待添加。

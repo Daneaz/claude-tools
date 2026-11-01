@@ -1,6 +1,7 @@
 {
   "name": "quick-tools",
   "version": "0.1.0",
+  "author": { "name": "Daneaz" },
   "description": "A button above the prompt that switches model, effort and ultracode with a click.",
   "types": "./types/index.d.ts"
 }

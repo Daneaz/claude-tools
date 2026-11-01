@@ -1,0 +1,12 @@
+{
+  "name": "claude-tools",
+  "owner": { "name": "Daneaz" },
+  "description": "Personal Claude Code mods",
+  "plugins": [
+    {
+      "name": "quick-tools",
+      "source": "./mods/quick-tools",
+      "description": "A button above the prompt that switches model, effort and ultracode with a click."
+    }
+  ]
+}

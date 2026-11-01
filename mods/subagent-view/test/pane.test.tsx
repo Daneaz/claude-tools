@@ -23,8 +23,10 @@ type Status = 'pending' | 'in_progress' | 'completed'
 
 // 充当 engine：agent.spawn 依次发 a1、a2、…（resume 时沿用原 id）；agent.list 默认列出派过的、都在运行，
 // 可由测试换掉；ui.open / ui.close 记下收到的 id。
-function engine(on: On) {
+// panes：engine 记录的、本 plugin 开着的 pane（ui.open 加入、ui.close 移除），可由测试预置。
+function engine(on: On, { panes = [] as string[] } = {}) {
   const clock = mock.clock(on)
+  const open = new Set(panes)
   const spawned: { id: string; spawnedBy?: string }[] = []
   const opened: string[] = []
   const closed: string[] = []
@@ -73,12 +75,18 @@ function engine(on: On) {
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('command.register', () => ({ value: { command: 'subagents' } }))
+  on('ui.panes', () => ({
+    value: [...open].map(id => ({ id, title: 'SubAgent View', isShown: true, isFocused: false, isPlaced: true })),
+  }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('ui.open', (_, e) => {
     opened.push(e.id)
+    open.add(e.id)
     return { value: { isPlaced: true } }
   })
   on('ui.close', (_, e) => {
     closed.push(e.id)
+    open.delete(e.id)
     isOpenAtClose.push(isOpen)
     return { value: undefined }
   })
@@ -277,16 +285,47 @@ test('command toggles pane', async ($, on) => {
   expect(isOpen).toBe(false)
 })
 
-// 测试的 $ 不能以 person 身份发起 ui.close（只有 render/press 等），engine 层的 hook 也不能调 $.ui.close；
-// 所以借命令发起的关闭走同一条 ui.close 链：engine 收到关闭时 isOpen 已是 false，说明清它的是本 mod 的
-// ui.close hook（不看 origin），用户用 pane 自带的关闭键时同样生效。
-test('person closing pane clears isOpen', async ($, on) => {
+// 测试的 $ 没有 ui.close，engine 层 hook 也不能调 $.ui.close，无法以 person 身份关闭；
+// 借命令发起的关闭走同一条 ui.close 链：engine 收到关闭时 isOpen 已是 false，说明清它的是 ui.close hook（不看 origin）。
+test('ui.close hook clears isOpen', async ($, on) => {
   const { closed, isOpenAtClose } = engine(on)
   await toggle($)
   await toggle($)
 
   expect(closed).toEqual(['subagent-view'])
   expect(isOpenAtClose).toEqual([false])
+})
+
+// /clear：state 回到默认（isOpen false），pane 却还开着；session.start 按 ui.panes 纠正，命令据实际状态关闭。
+test('session.start syncs isOpen with open panes', async ($, on) => {
+  const { opened, closed } = engine(on, { panes: ['subagent-view'] })
+  let isOpen: unknown
+  on('state.set', { plugin: 'subagent-view', key: 'isOpen' }, (_, e, next) => {
+    isOpen = e.value
+    return next(e)
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(isOpen).toBe(true)
+
+  await toggle($)
+  expect(closed).toEqual(['subagent-view'])
+  expect(opened).toEqual([])
+  expect(isOpen).toBe(false)
+})
+
+test('session.start without the pane leaves isOpen false', async ($, on) => {
+  const { opened } = engine(on)
+  let isOpen: unknown
+  on('state.set', { plugin: 'subagent-view', key: 'isOpen' }, (_, e, next) => {
+    isOpen = e.value
+    return next(e)
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(isOpen).toBe(false)
+  await toggle($)
+  expect(opened).toEqual(['subagent-view'])
 })
 
 test('self-heal marks a vanished agent ended', async ($, on) => {

@@ -109,15 +109,22 @@ async function changeAgents($: EngineInterface, change: (list: Agent[]) => Agent
   await syncTimer($)
 }
 
+// pane 是否打开以 engine 的记录为准：/clear 让 state 回到默认，但 pane 可能还开着。
+const isPaneOpen = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
+
 export const register: Register = on => {
+  // 含 /clear 触发的那次：isOpen 按 pane 的实际状态重设。
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'subagents', description: 'Show or hide the SubAgent View pane' })
+    const open = await isPaneOpen($)
+    await update($, isOpen, () => open)
+    await syncTimer($)
     return next(e)
   })
 
   // 不在对话里留回执：pane 的出现 / 消失本身就是回应。
   on('command.run', { command: 'subagents' }, async $ => {
-    if (await read($, isOpen)) {
+    if (await isPaneOpen($)) {
       // isOpen 由下面的 ui.close hook 清掉：与用户自己关掉 pane 走同一条路。
       await $.ui.close({ id: PANE })
     } else {

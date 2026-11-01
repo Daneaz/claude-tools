@@ -351,3 +351,13 @@ test('the toggle is drawn plain and ULTRA off sits on grey', async ($, on) => {
   await ui.unmount()
 })
 
+
+test('the band spans its width so the button sits at the right', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 87 } })
+  const root = await ui.find({ key: 'root' })
+  expect(root?.props.width).toBe(87)
+  expect(root?.props.alignItems).toBe('flex-end')
+  await ui.unmount()
+})

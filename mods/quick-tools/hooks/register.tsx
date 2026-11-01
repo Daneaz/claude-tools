@@ -126,7 +126,8 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" alignItems="flex-end">
+      // 撑满 band 宽度，按钮才会落在最右侧（不设宽度时 Box 只有内容那么宽）。
+      <Box key="root" width={e.props.bodyColumns} flexDirection="column" alignItems="flex-end">
         {open && (
           <Box borderStyle="round" flexDirection="column" paddingX={1}>
             <Box flexWrap="wrap">

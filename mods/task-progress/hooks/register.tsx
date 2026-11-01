@@ -164,7 +164,8 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.hasSurvey) {
+    // AbovePrompt 只在 terminal 与 desktop 上出现，两处都画。
+    if ((e.surface !== 'terminal' && e.surface !== 'desktop') || e.props.hasSurvey) {
       return next(e)
     }
 
@@ -187,8 +188,8 @@ export const register: Register = on => {
     let summary
     if (s.isFinished) {
       summary = [
-        <Text color={GREEN}>{`✓ ${s.total}/${s.total} 全部完成`}</Text>,
-        subsNote !== '' && <Text dimColor>{subsNote}</Text>,
+        <Text mono color={GREEN}>{`✓ ${s.total}/${s.total} 全部完成`}</Text>,
+        subsNote !== '' && <Text mono dimColor>{subsNote}</Text>,
       ]
     } else {
       const count = `${s.position}/${s.total}`
@@ -198,17 +199,17 @@ export const register: Register = on => {
       summary = [
         ...p.tasks.map(t =>
           t.status === 'pending' ? (
-            <Text color={DARK}>▱</Text>
+            <Text mono color={DARK}>▱</Text>
           ) : (
-            <Text color={t.status === 'completed' ? GREEN : BLUE}>▰</Text>
+            <Text mono color={t.status === 'completed' ? GREEN : BLUE}>▰</Text>
           ),
         ),
         '  ',
-        <Text color={BLUE} weight="bold">{count}</Text>,
+        <Text mono color={BLUE} weight="bold">{count}</Text>,
         `  ${truncate(s.title, room)}`,
-        extra !== '' && <Text dimColor>{extra}</Text>,
-        <Text dimColor>{left}</Text>,
-        subsNote !== '' && <Text dimColor>{subsNote}</Text>,
+        extra !== '' && <Text mono dimColor>{extra}</Text>,
+        <Text mono dimColor>{left}</Text>,
+        subsNote !== '' && <Text mono dimColor>{subsNote}</Text>,
       ]
     }
 
@@ -228,15 +229,15 @@ export const register: Register = on => {
       if (t.status === 'completed') {
         return (
           <Box key={`task-${t.id}`}>
-            <Text>{'  '}<Text color={GREEN}>✓</Text>{'  '}</Text>
-            <Text color={DONE_NAME}>{name}</Text>
-            <Text>{'  '}</Text>
+            <Text mono>{'  '}<Text mono color={GREEN}>✓</Text>{'  '}</Text>
+            <Text mono color={DONE_NAME}>{name}</Text>
+            <Text mono>{'  '}</Text>
             <Box key={`bar-${t.id}`}>
-              <Text color={GREEN}>{'▰'.repeat(BAR)}</Text>
+              <Text mono color={GREEN}>{'▰'.repeat(BAR)}</Text>
             </Box>
-            <Text>{'  '}</Text>
+            <Text mono>{'  '}</Text>
             <Box key={`note-${t.id}`}>
-              <Text color={GREEN}>{truncate('Done', noteWidth)}</Text>
+              <Text mono color={GREEN}>{truncate('Done', noteWidth)}</Text>
             </Box>
           </Box>
         )
@@ -244,17 +245,17 @@ export const register: Register = on => {
       if (t.status === 'in_progress') {
         return (
           <Box key={`task-${t.id}`}>
-            <Text>{'  '}<Text color={BLUE}>›</Text>{'  '}</Text>
-            <Text weight="bold">{name}</Text>
-            <Text>{'  '}</Text>
+            <Text mono>{'  '}<Text mono color={BLUE}>›</Text>{'  '}</Text>
+            <Text mono weight="bold">{name}</Text>
+            <Text mono>{'  '}</Text>
             <Box key={`bar-${t.id}`}>
               {sweep(tick, BAR).map(lit => (
-                <Text color={lit ? BLUE : DARK}>{lit ? '▰' : '▱'}</Text>
+                <Text mono color={lit ? BLUE : DARK}>{lit ? '▰' : '▱'}</Text>
               ))}
             </Box>
-            <Text>{'  '}</Text>
+            <Text mono>{'  '}</Text>
             <Box key={`note-${t.id}`}>
-              <Text color={BLUE}>{truncate(t.activeForm ?? '进行中', noteWidth)}</Text>
+              <Text mono color={BLUE}>{truncate(t.activeForm ?? '进行中', noteWidth)}</Text>
             </Box>
           </Box>
         )
@@ -263,11 +264,11 @@ export const register: Register = on => {
       // 未开始：没有进度条，空出同样宽度让描述列对齐。
       return (
         <Box key={`task-${t.id}`}>
-          <Text>{' '.repeat(PREFIX)}</Text>
-          <Text dimColor>{name}</Text>
-          <Text>{' '.repeat(GAP + BAR + GAP)}</Text>
+          <Text mono>{' '.repeat(PREFIX)}</Text>
+          <Text mono dimColor>{name}</Text>
+          <Text mono>{' '.repeat(GAP + BAR + GAP)}</Text>
           <Box key={`note-${t.id}`}>
-            <Text dimColor>{truncate('Next', noteWidth)}</Text>
+            <Text mono dimColor>{truncate('Next', noteWidth)}</Text>
           </Box>
         </Box>
       )
@@ -275,12 +276,12 @@ export const register: Register = on => {
 
     const agentRow = (a: Subagent) => (
       <Box key={`agent-${a.agentId}`}>
-        <Text>{' '.repeat(AGENT_INDENT)}</Text>
-        <Text dimColor>{AGENT_TAG}</Text>
-        <Text color={NOTE}>
+        <Text mono>{' '.repeat(AGENT_INDENT)}</Text>
+        <Text mono dimColor>{AGENT_TAG}</Text>
+        <Text mono color={NOTE}>
           {`  ${isAligned ? fit(a.description, agentWidth) : truncate(a.description, agentWidth)}`}
         </Text>
-        <Text color={BLUE}>{`  ${RUNNING}`}</Text>
+        <Text mono color={BLUE}>{`  ${RUNNING}`}</Text>
       </Box>
     )
 
@@ -307,7 +308,7 @@ export const register: Register = on => {
     const win = windowRows(all.length, focus, budget)
     const more = (key: string, n: number) => (
       <Box key={key}>
-        <Text dimColor>{`${' '.repeat(PREFIX)}… 另有 ${n} 个`}</Text>
+        <Text mono dimColor>{`${' '.repeat(PREFIX)}… 另有 ${n} 个`}</Text>
       </Box>
     )
     const rows = [
@@ -327,7 +328,7 @@ export const register: Register = on => {
         <Button key="toggle" plain onPress={toggle}>
           {summary}
         </Button>
-        {open && <Text>{' '}</Text>}
+        {open && <Text mono>{' '}</Text>}
         {open && rows}
         {below}
       </Box>

@@ -1,6 +1,8 @@
 {
   "name": "claude-tools",
-  "owner": { "name": "Daneaz" },
+  "owner": {
+    "name": "Daneaz"
+  },
   "description": "Personal Claude Code mods",
   "plugins": [
     {
@@ -17,6 +19,16 @@
       "name": "subagent-view",
       "source": "./mods/subagent-view",
       "description": "A side pane showing each subagent's plan progress and time left."
+    },
+    {
+      "name": "blast-radius",
+      "source": "./mods/blast-radius",
+      "description": "Holds risky shell commands (rm -rf, git reset --hard, git clean, force push, migrations) and shows what they would change before they run."
+    },
+    {
+      "name": "replay-theater",
+      "source": "./mods/replay-theater",
+      "description": "Step through the file edits Claude made in the last turn, one diff at a time."
     }
   ]
 }

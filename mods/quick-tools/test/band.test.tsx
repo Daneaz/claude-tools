@@ -259,7 +259,7 @@ test('submit collapses', async ($, on) => {
 
 for (const [name, props, surface] of [
   ['survey yields', { ...BAND.props, hasSurvey: true }, 'terminal'],
-  ['other surfaces pass', BAND.props, 'desktop'],
+  ['other surfaces pass', BAND.props, 'vscode'],
 ] as const) {
   test(name, async ($, on) => {
     engine(on, undefined, { band: 'none' })
@@ -275,6 +275,20 @@ for (const [name, props, surface] of [
     await ui.unmount()
   })
 }
+
+test('desktop app draws the button and the panel', async ($, on) => {
+  const calls = engine(on, () => 'Set model to `Sonnet 5.5` and saved as your default for new sessions')
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+
+  expect(await toggleText(ui)).toBe('⚡ Opus · high')
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'effort-high' })).toBeDefined()
+  expect((await ui.find({ key: 'ultra' }))?.text).toContain('ULTRA')
+  await ui.press({ key: 'model-sonnet' })
+  expect(calls).toEqual([{ command: 'model', args: 'sonnet' }])
+  await ui.unmount()
+})
 
 test('narrow band still shows the button', async ($, on) => {
   engine(on)

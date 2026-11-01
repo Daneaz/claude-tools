@@ -1,0 +1,103 @@
+import { expect, test } from 'claude-code/testing'
+
+import {
+  EFFORTS,
+  MODELS,
+  applyCommandResult,
+  buttonLabel,
+  modelKeyOf,
+  supportedEfforts,
+} from '../hooks/logic'
+import type { Status } from '../hooks/logic'
+
+const OPUS_HIGH: Status = { model: 'opus', effort: 'high', ultracode: false }
+
+test('modelKeyOf reads ids, aliases and display names', async () => {
+  expect(modelKeyOf('claude-opus-5-5')).toBe('opus')
+  expect(modelKeyOf('Sonnet 5.5')).toBe('sonnet')
+  expect(modelKeyOf('haiku')).toBe('haiku')
+  expect(modelKeyOf('gpt-4')).toBeNull()
+})
+
+test('effort output sets the level', async () => {
+  const text =
+    'Set effort level to xhigh (saved as your default for new sessions): Deeper reasoning than high, just below maximum (on supported models)'
+  expect(applyCommandResult(OPUS_HIGH, 'effort', 'xhigh', text)).toEqual({
+    ...OPUS_HIGH,
+    effort: 'xhigh',
+  })
+})
+
+test('ultracode on and off', async () => {
+  const on = applyCommandResult(
+    OPUS_HIGH,
+    'effort',
+    'ultracode on',
+    'Ultracode on (this session only): dynamic workflows on every task. Effort stays high.',
+  )
+  expect(on).toEqual({ ...OPUS_HIGH, ultracode: true })
+
+  const off = applyCommandResult(
+    { ...OPUS_HIGH, ultracode: true },
+    'effort',
+    'ultracode off',
+    'Ultracode off. Effort stays medium.',
+  )
+  expect(off).toEqual({ model: 'opus', effort: 'medium', ultracode: false })
+})
+
+test('model output sets the model', async () => {
+  const saved = applyCommandResult(
+    OPUS_HIGH,
+    'model',
+    'claude-sonnet-5-5',
+    'Set model to `Sonnet 5.5` and saved as your default for new sessions',
+  )
+  expect(saved).toEqual({ ...OPUS_HIGH, model: 'sonnet' })
+
+  const sessionOnly = applyCommandResult(
+    OPUS_HIGH,
+    'model',
+    'haiku',
+    'Set model to `Haiku 5.5` for this session only',
+  )
+  expect(sessionOnly).toEqual({ ...OPUS_HIGH, model: 'haiku' })
+})
+
+test('unrecognised output leaves state alone', async () => {
+  const errors: [command: 'model' | 'effort', args: string, text: string][] = [
+    [
+      'effort',
+      'bogus',
+      'Invalid argument: bogus. Valid options are: low, medium, high, xhigh, max, auto, ultracode [on|off]',
+    ],
+    [
+      'effort',
+      'ultracode on',
+      "Ultracode isn't available on claude-haiku-5-5. Valid options are: low, medium, high, xhigh, max, auto",
+    ],
+    ['model', 'gpt-4', 'Unable to validate model: gpt-4 not found'],
+    ['effort', 'xhigh', 'Set model to `Sonnet 5.5` for this session only'],
+  ]
+  for (const [command, args, text] of errors) {
+    expect(applyCommandResult(OPUS_HIGH, command, args, text)).toBe(OPUS_HIGH)
+  }
+})
+
+test('buttonLabel', async () => {
+  expect(buttonLabel({ model: 'opus', effort: 'high', ultracode: false }, false)).toBe(
+    '⚡ Opus · high',
+  )
+  expect(buttonLabel({ model: 'opus', effort: 'high', ultracode: true }, true)).toBe(
+    '⚡ Opus · high · ✦ ▾',
+  )
+  expect(buttonLabel({ model: null, effort: null, ultracode: false }, false)).toBe('⚡ ? · ?')
+})
+
+test('supportedEfforts: every 2.1.316 model takes all five levels', async () => {
+  expect(EFFORTS).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+  for (const { key } of MODELS) {
+    expect(supportedEfforts(key)).toEqual(EFFORTS)
+  }
+  expect(supportedEfforts(null)).toEqual(EFFORTS)
+})

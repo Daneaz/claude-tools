@@ -61,11 +61,23 @@ async function fillSavedEffort($: EngineInterface) {
   }
 }
 
+// 从会话读模型、从 settings 读该模型存的 effort。
+async function init($: EngineInterface) {
+  const model = modelKeyOf(await $.session.model())
+  await update($, status, s => ({ ...s, model }))
+  await fillSavedEffort($)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const model = modelKeyOf(await $.session.model())
-    await update($, status, s => ({ ...s, model }))
-    await fillSavedEffort($)
+    await init($)
+
+    return next(e)
+  })
+
+  // /clear 换了新 session id，$.state 回到默认值，且不再触发 session.start；classic SessionStart 仍会来（source: clear）。
+  on('classic.SessionStart', async ($, e, next) => {
+    await init($)
 
     return next(e)
   })

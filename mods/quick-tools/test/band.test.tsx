@@ -396,3 +396,14 @@ test('button and panel each sit in a right-justified row', async ($, on) => {
   expect(await ui.find({ key: 'toggle' })).toBeDefined()
   await ui.unmount()
 })
+
+test('after /clear the button reads model and effort again', async ($, on) => {
+  engine(on)
+  on('classic.SessionStart', () => ({}))
+  on('settings.read', () => ({ value: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'medium' } } } }))
+  // /clear：新 session id，$.state 从默认值开始，没有 session.start，只有 classic SessionStart(source: clear)。
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  const ui = await $.ui.mount(BAND)
+  expect(await toggleText(ui)).toBe('⚡ Opus · medium')
+  await ui.unmount()
+})

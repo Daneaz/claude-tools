@@ -38,9 +38,14 @@ function engine(on: On, reply: (call: Call) => string | undefined = () => undefi
   return calls
 }
 
-async function step($: Engine, effort: 'low' | 'medium' | 'high', agentId?: string) {
+// 一次模型请求；model 默认是本 mod 认不出的名字，不影响 status.model。
+async function step(
+  $: Engine,
+  effort: 'low' | 'medium' | 'high',
+  { model = 'm', agentId }: { model?: string; agentId?: string } = {},
+) {
   const loop = agentId === undefined ? {} : { agentId }
-  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'm', effort, messageCount: 1, ...loop })) {
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model, effort, messageCount: 1, ...loop })) {
   }
 }
 
@@ -100,7 +105,7 @@ test('pick model runs /model', async ($, on) => {
   expect(await ui.find({ key: 'model-opus' })).toBeDefined()
   // 新模型的 effort 未知，等主循环下一步报上来；subagent 的步不算。
   expect(await toggleText(ui)).toBe('⚡ Sonnet · ? ▾')
-  await step($, 'low', 'a1')
+  await step($, 'low', { agentId: 'a1', model: 'claude-haiku-5-5' })
   expect(await toggleText(ui)).toBe('⚡ Sonnet · ? ▾')
   await step($, 'medium')
   expect(await toggleText(ui)).toBe('⚡ Sonnet · medium ▾')
@@ -166,6 +171,19 @@ test('a press whose command reports an error changes nothing', async ($, on) => 
   await ui.unmount()
 })
 
+test('a press whose command throws changes nothing', async ($, on) => {
+  engine(on, () => {
+    throw new Error('engine failed')
+  })
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  await ui.press({ key: 'effort-low' })
+
+  expect(await toggleText(ui)).toBe('⚡ Opus · high ▾')
+  await ui.unmount()
+})
+
 test('press while working runs once', async ($, on) => {
   const calls = engine(on)
   await start($)
@@ -190,6 +208,18 @@ test('typed commands update the button', async ($, on) => {
   expect(await toggleText(ui)).toBe('⚡ Opus · low')
   await $.command.run({ ...TYPED, command: 'model', args: 'sonnet' })
   expect(await toggleText(ui)).toBe('⚡ Sonnet · ?')
+  await ui.unmount()
+})
+
+test('a typed /model that prints nothing is corrected by the next step', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(BAND)
+
+  await $.command.run({ ...TYPED, command: 'model', args: 'sonnet' })
+  expect(await toggleText(ui)).toBe('⚡ Opus · high')
+  await step($, 'medium', { model: 'claude-sonnet-5-5' })
+  expect(await toggleText(ui)).toBe('⚡ Sonnet · medium')
   await ui.unmount()
 })
 

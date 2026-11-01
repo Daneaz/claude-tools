@@ -35,7 +35,12 @@ async function run(
   args: string,
   asked: (s: Status) => Status,
 ) {
-  const { text } = await $.command.run({ command, args })
+  const r = await $.command.run({ command, args }).catch(() => null)
+  if (r === null) {
+    return // 命令 reject（engine 出错、被拦下）：状态不变。
+  }
+
+  const { text } = r
   await update($, status, s => (text ? applyCommandResult(s, command, args, text) : asked(s)))
 }
 
@@ -47,11 +52,13 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // 主循环每一步带着实际的 effort：开局、以及切模型后（effort 置 null）都从这里补上。
+  // 主循环每一步带着实际的 model 与 effort：开局、切模型后（effort 置 null）、
+  // 手敲 `/model` 却没拿到输出时，都从这里校正；认不出的不动。
   on('turn.step', async function* ($, e, next) {
-    const level = EFFORTS.find(x => x === e.effort)
-    if (e.agentId === undefined && level !== undefined) {
-      await update($, status, s => ({ ...s, effort: level }))
+    if (e.agentId === undefined) {
+      const model = modelKeyOf(e.model)
+      const level = EFFORTS.find(x => x === e.effort)
+      await update($, status, s => ({ ...s, model: model ?? s.model, effort: level ?? s.effort }))
     }
 
     return yield* next(e)
@@ -125,6 +132,7 @@ export const register: Register = on => {
             <Box>
               {s.ultracode ? (
                 <Button key="ultra" plain onPress={toggleUltra}>
+                  {/* Text 不带 key：描述树没有 reconciliation，surface 会丢掉 Text 的 key。 */}
                   {Array.from(ULTRA).map((ch, i) => (
                     <Text backgroundColor={RAINBOW[i]} color={INK}>{ch}</Text>
                   ))}

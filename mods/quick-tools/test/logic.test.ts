@@ -47,13 +47,14 @@ test('ultracode on and off', async () => {
 })
 
 test('model output sets the model', async () => {
+  // effort 按模型分开存，`/model` 的输出不带 effort：置 null，等下一次 turn.step 填。
   const saved = applyCommandResult(
     OPUS_HIGH,
     'model',
     'claude-sonnet-5-5',
     'Set model to `Sonnet 5.5` and saved as your default for new sessions',
   )
-  expect(saved).toEqual({ ...OPUS_HIGH, model: 'sonnet' })
+  expect(saved).toEqual({ ...OPUS_HIGH, model: 'sonnet', effort: null })
 
   const sessionOnly = applyCommandResult(
     OPUS_HIGH,
@@ -61,7 +62,44 @@ test('model output sets the model', async () => {
     'haiku',
     'Set model to `Haiku 5.5` for this session only',
   )
-  expect(sessionOnly).toEqual({ ...OPUS_HIGH, model: 'haiku' })
+  expect(sessionOnly).toEqual({ ...OPUS_HIGH, model: 'haiku', effort: null })
+})
+
+test('effort auto, clamped, and a kept model', async () => {
+  expect(
+    applyCommandResult(OPUS_HIGH, 'effort', 'auto', 'Effort level set to auto (this session only)'),
+  ).toEqual({ ...OPUS_HIGH, effort: null })
+
+  const clamped =
+    "Effort 'max' exceeds the cap for claude-opus-5-5 set by your settings or organization; set to 'xhigh' instead (this session only): Deeper reasoning than high"
+  expect(applyCommandResult(OPUS_HIGH, 'effort', 'max', clamped)).toEqual({
+    ...OPUS_HIGH,
+    effort: 'xhigh',
+  })
+
+  expect(applyCommandResult(OPUS_HIGH, 'model', 'opus', 'Kept model as `Opus 5.5`')).toBe(
+    OPUS_HIGH,
+  )
+})
+
+test('ANSI codes and leading whitespace are ignored', async () => {
+  expect(
+    applyCommandResult(
+      OPUS_HIGH,
+      'effort',
+      'low',
+      '  \u001b[2mSet effort level to \u001b[1mlow\u001b[22m (this session only): Quick',
+    ),
+  ).toEqual({ ...OPUS_HIGH, effort: 'low' })
+
+  expect(
+    applyCommandResult(
+      OPUS_HIGH,
+      'model',
+      'haiku',
+      '\n\u001b[1mSet model to `Haiku 5.5`\u001b[22m for this session only',
+    ),
+  ).toEqual({ ...OPUS_HIGH, model: 'haiku', effort: null })
 })
 
 test('unrecognised output leaves state alone', async () => {

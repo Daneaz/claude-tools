@@ -15,6 +15,8 @@
 // - 档位：内置 model catalog 里 Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5 都带
 //   effort、xhigh_effort、max_effort；`qwe(model)` 只会被 settings 的 maxEffortLevel
 //   或组织下发的上限截断，本机两者都没有 → 四个模型都支持全部 5 档。
+// - 另外认得：`Effort level set to auto …`（effort 未知）、被上限截断的
+//   `Effort 'max' exceeds the cap for … set to 'xhigh' instead …`、`Kept model as …`（不变）。
 
 import type { Effort, ModelKey, Status } from '../types'
 
@@ -49,17 +51,27 @@ export function applyCommandResult(
   s: Status,
   command: 'model' | 'effort',
   _args: string,
-  text: string,
+  output: string,
 ): Status {
+  // 输出可能带 ANSI 样式和前导空白（交互模式的 local-jsx 命令）。
+  const text = output.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '').trimStart()
+
   if (command === 'model') {
     const name = /^Set model to `([^`]+)`/.exec(text)?.[1]
 
-    return name === undefined ? s : { ...s, model: modelKeyOf(name) }
+    // effort 按模型分开存，输出里没有：未知，等下一次主循环 turn.step 报上来。
+    return name === undefined ? s : { ...s, model: modelKeyOf(name), effort: null }
   }
 
-  const level = asEffort(/^Set effort level to (\w+)/.exec(text)?.[1])
+  const level = asEffort(
+    (/^Set effort level to (\w+)/.exec(text) ?? / set to '(\w+)' instead/.exec(text))?.[1],
+  )
   if (level !== null) {
     return { ...s, effort: level }
+  }
+
+  if (/^Effort level set to auto\b/.test(text)) {
+    return { ...s, effort: null }
   }
 
   const ultra = /^Ultracode (on|off)\b/.exec(text)?.[1]

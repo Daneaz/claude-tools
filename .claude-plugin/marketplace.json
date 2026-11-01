@@ -7,6 +7,11 @@
       "name": "quick-tools",
       "source": "./mods/quick-tools",
       "description": "A button above the prompt that switches model, effort and ultracode with a click."
+    },
+    {
+      "name": "task-progress",
+      "source": "./mods/task-progress",
+      "description": "A band above the prompt showing the session plan's progress; click to see each task."
     }
   ]
 }

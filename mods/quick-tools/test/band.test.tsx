@@ -290,6 +290,23 @@ test('desktop app draws the button and the panel', async ($, on) => {
   await ui.unmount()
 })
 
+// 桌面 app 把 Button 画成原生按钮，里面 Text 的颜色不生效；选中态改用原生的 variant 表达。
+test('desktop app marks the selected chips with the native primary variant', async ($, on) => {
+  engine(on, () => 'Ultracode on (this session only)')
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'toggle' })
+
+  expect((await ui.find({ key: 'model-opus' }))?.props.variant).toBe('primary')
+  expect((await ui.find({ key: 'model-sonnet' }))?.props.variant).toBe('secondary')
+  expect((await ui.find({ key: 'effort-high' }))?.props.variant).toBe('primary')
+  expect((await ui.find({ key: 'effort-low' }))?.props.variant).toBe('secondary')
+  expect((await ui.find({ key: 'ultra' }))?.props.variant).toBe('secondary')
+  await ui.press({ key: 'ultra' })
+  expect((await ui.find({ key: 'ultra' }))?.props.variant).toBe('primary')
+  await ui.unmount()
+})
+
 test('narrow band still shows the button', async ($, on) => {
   engine(on)
   await start($)

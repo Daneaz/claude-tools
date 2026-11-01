@@ -141,9 +141,15 @@ export const register: Register = on => {
     const open = await read($, isOpen)
     const supported = supportedEfforts(s.model)
 
-    // 选中项紫底深字，其他 dim。
+    // 桌面 app 把 Button 画成原生按钮，里面 Text 的颜色不生效：选中态用原生的 primary，其余 secondary。
+    const isDesktop = e.surface === 'desktop'
+    const nativeChip = (key: string, label: string, isOn: boolean, onPress: () => unknown) => (
+      <Button key={key} label={label} variant={isOn ? 'primary' : 'secondary'} onPress={onPress} />
+    )
+
+    // terminal：选中项紫底深字，其他 dim。
     const chip = (key: string, label: string, isOn: boolean, onPress: () => unknown) =>
-      isOn ? (
+      isDesktop ? nativeChip(key, label, isOn, onPress) : isOn ? (
         <Button key={key} plain onPress={onPress}>
           <Text backgroundColor={PURPLE} color={INK}>{` ${label} `}</Text>
         </Button>
@@ -185,7 +191,9 @@ export const register: Register = on => {
               })}
             </Box>
             <Box>
-              {s.ultracode ? (
+              {isDesktop ? (
+                nativeChip('ultra', ULTRA.trim(), s.ultracode, toggleUltra)
+              ) : s.ultracode ? (
                 <Button key="ultra" plain onPress={toggleUltra}>
                   {/* Text 不带 key：描述树没有 reconciliation，surface 会丢掉 Text 的 key。 */}
                   {Array.from(ULTRA).map((ch, i) => (

@@ -12,6 +12,11 @@
       "name": "task-progress",
       "source": "./mods/task-progress",
       "description": "A band above the prompt showing the session plan's progress; click to see each task."
+    },
+    {
+      "name": "subagent-view",
+      "source": "./mods/subagent-view",
+      "description": "A side pane showing each subagent's plan progress and time left."
     }
   ]
 }

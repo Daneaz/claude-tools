@@ -21,6 +21,9 @@ const RAINBOW = [
   '#ff5f8a', '#ff8c64', '#ffb84d', '#e6dc5a', '#7ee787', '#58c4ff', '#78a0ff', '#aa8cff', '#c792ff',
 ]
 const ULTRA = ' ✦ ULTRA '
+// SubAgent View 的 pane 打开时的蓝底。
+const BLUE = '#8ab4ff'
+const SUBAGENTS = ' ◧ SubAgents '
 
 const status = atom({ plugin: 'quick-tools', key: 'status' } as const, {
   model: null,
@@ -28,6 +31,16 @@ const status = atom({ plugin: 'quick-tools', key: 'status' } as const, {
   ultracode: false,
 })
 const isOpen = atom({ plugin: 'quick-tools', key: 'isOpen' } as const, false)
+
+// 跨 mod 读 subagent-view 的 state：任何 plugin 都能 `$.state.get` 任何值，不必列 `dependencies`
+// （列了就成了硬依赖，subagent-view 没装时 quick-tools 也装不上）。没装时读到 undefined。
+// 类型只在本文件里补上这一个 key，不写进本 mod 的 contract，免得和 subagent-view 自己的 contract 冲突。
+declare module 'claude-code' {
+  interface PluginState {
+    'subagent-view': { isOpen: boolean }
+  }
+}
+const subagentsOpen = { plugin: 'subagent-view', key: 'isOpen' } as const
 
 // `$.command.run` 只跳过发起调用的那个 hook；onPress 不是 hook，所以这里的调用照常经过本 mod 的
 // `command.run` hook。hook 和这里都按同一份输出写 state，结果相同，重复写无害；这里另外处理没有输出时的兜底。
@@ -139,6 +152,10 @@ export const register: Register = on => {
     const s = await read($, status)
     const open = await read($, isOpen)
     const supported = supportedEfforts(s.model)
+    // 读不到（reject）或不是 boolean（没装）：不显示这一行。
+    const subagents = await $.state
+      .get(subagentsOpen)
+      .then(r => (typeof r.value === 'boolean' ? r.value : null), () => null)
 
     // 选中项紫底深字，其他 dim。
     const chip = (key: string, label: string, isOn: boolean, onPress: () => unknown) =>
@@ -197,6 +214,18 @@ export const register: Register = on => {
                 </Button>
               )}
             </Box>
+            {subagents !== null && (
+              <Box>
+                {/* 开关就是 `/subagents`，开 / 关由 subagent-view 自己决定；失败时静默。 */}
+                <Button key="subagents" plain onPress={() => $.command.run({ command: 'subagents', args: '' }).catch(() => {})}>
+                  {subagents ? (
+                    <Text backgroundColor={BLUE} color={INK}>{SUBAGENTS}</Text>
+                  ) : (
+                    <Text backgroundColor={GREY} dimColor>{SUBAGENTS}</Text>
+                  )}
+                </Button>
+              </Box>
+            )}
           </Box>
           </Box>
         )}

@@ -24,6 +24,7 @@ function engine(on: On, reply: (call: Call) => string | undefined = () => undefi
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('classic.PostModelSwitch', () => ({}))
   on('turn.step', async function* (_, e) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
@@ -101,7 +102,7 @@ test('pick model runs /model', async ($, on) => {
   await ui.press({ key: 'toggle' })
   await ui.press({ key: 'model-sonnet' })
 
-  expect(calls).toEqual([{ command: 'model', args: 'claude-sonnet-5-5' }])
+  expect(calls).toEqual([{ command: 'model', args: 'sonnet' }])
   expect(await ui.find({ key: 'model-opus' })).toBeDefined()
   // 新模型的 effort 未知，等主循环下一步报上来；subagent 的步不算。
   expect(await toggleText(ui)).toBe('⚡ Sonnet · ? ▾')
@@ -264,3 +265,89 @@ test('narrow band still shows the button', async ($, on) => {
   expect(await toggleText(ui)).toBe('⚡ Opus · high ▾')
   await ui.unmount()
 })
+
+test('pressing the selected model or effort sends nothing', async ($, on) => {
+  const calls = engine(on)
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  await ui.press({ key: 'model-opus' })
+  await ui.press({ key: 'effort-high' })
+
+  expect(calls).toEqual([])
+  expect(await toggleText(ui)).toBe('⚡ Opus · high ▾')
+  await ui.unmount()
+})
+
+const SWITCH = {
+  from_model: 'claude-opus-5-5',
+  requested_model: null,
+  source: 'picker',
+  context_tokens: 0,
+  prompt_cache_warm: false,
+  cache_ttl: '5m',
+  estimated_cache_write_usd: 0,
+  pricing: 'catalog',
+} as const
+
+test('a model switch made elsewhere updates the button', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(BAND)
+
+  await $.classic.PostModelSwitch({ ...SWITCH, to_model: 'claude-sonnet-5-5' })
+  expect(await toggleText(ui)).toBe('⚡ Sonnet · ?')
+  await step($, 'medium')
+  expect(await toggleText(ui)).toBe('⚡ Sonnet · medium')
+  // 认不出的模型：model 不动，effort 仍未知。
+  await $.classic.PostModelSwitch({ ...SWITCH, to_model: 'gpt-4' })
+  expect(await toggleText(ui)).toBe('⚡ Sonnet · ?')
+  await ui.unmount()
+})
+
+test('ULTRA decides on or off from the state at press time', async ($, on) => {
+  const calls = engine(on, ({ args }) =>
+    args.startsWith('ultracode on') ? 'Ultracode on (this session only): dynamic workflows on every task. Effort stays high.' : undefined,
+  )
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  // 面板画好之后，用户手敲打开了 ultracode。
+  await $.command.run({ ...TYPED, command: 'effort', args: 'ultracode on' })
+  await ui.press({ key: 'ultra' })
+
+  expect(calls.at(-1)).toEqual({ command: 'effort', args: 'ultracode off' })
+  await ui.unmount()
+})
+
+test('steps that change nothing write no state', async ($, on) => {
+  engine(on)
+  let writes = 0
+  on('state.set', { plugin: 'quick-tools', key: 'status' }, ($, e, next) => {
+    writes += 1
+
+    return next(e)
+  })
+  await start($)
+  const before = writes
+  await step($, 'high')
+  await step($, 'high', { model: 'claude-opus-5-5' })
+  expect(writes).toBe(before)
+  await step($, 'low')
+  expect(writes).toBe(before + 1)
+})
+
+test('the toggle is drawn plain and ULTRA off sits on grey', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  expect((await ui.find({ key: 'toggle' }))?.props.plain).toBe(true)
+  await ui.press({ key: 'toggle' })
+
+  const ultra = await ui.find({ key: 'ultra' })
+  expect(ultra?.children).toEqual([
+    expect.objectContaining({ props: expect.objectContaining({ backgroundColor: '#3a3d48', dimColor: true }) }),
+  ])
+  await ui.unmount()
+})
+

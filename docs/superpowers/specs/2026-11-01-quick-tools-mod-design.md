@@ -65,10 +65,12 @@
 - 点按钮：展开 / 收起。
 - 点模型或 effort 选项：执行对应命令；面板**保持展开**，方便连改几项（我的决定）。
 - 点 ULTRA：切换 ultracode。
-- 再点按钮收起；另外用户提交 prompt 或按 Esc 时自动收起（我的决定，防止面板一直挡着对话）。
-- 切换模型时 effort（用户决定：如实显示）：Claude Code 按模型分别存 effort，切模型后按钮与面板显示新模型实际的 effort，mod 不补发 `/effort`。新模型不支持的档位在面板里置灰、点击无效。各模型支持哪些档位由 builder 实测确认。
+- 再点按钮收起；另外用户提交 prompt 时自动收起（我的决定，防止面板一直挡着对话）。执行时裁定：不做 Esc 收起（band 拿不到不打扰 composer 的 Esc），收起只有这两种方式。
+- 点已选中的模型或 effort：不发命令。
+- 切换模型时 effort（用户决定：如实显示）：Claude Code 按模型分别存 effort，切模型后按钮与面板显示新模型实际的 effort，mod 不补发 `/effort`。新模型不支持的档位在面板里置灰、点击无效。各模型支持哪些档位由 builder 实测确认。执行时实测：2.1.316 上四个模型都支持全部 5 档（只有 settings 的 `maxEffortLevel` 或组织上限会截断），所以置灰逻辑保留但目前不会触发。
+- 切模型后 effort 的来源（执行时裁定）：`/model` 的输出不带 effort，切换后按钮先显示 `?`，直到下一次主循环请求的 `turn.step` 报上实际值。picker、meta+p、`/config`、fast mode、fallback 换的模型由 `classic.PostModelSwitch` 观察到，同样把 effort 置为 `?`。
 - 状态来源：除了记住自己点过什么，还要观察用户手动敲的 `/model`、`/effort`（`command.run` hook 里 `await next(e)` 后读结果），保证按钮显示与实际一致。
-- 模型映射：Fable → `claude-fable-5-1`，Opus → `claude-opus-5-5`，Sonnet → `claude-sonnet-5-5`，Haiku → `claude-haiku-5-5`（或对应 alias，由 builder 验证 `/model` 接受哪种）。
+- 模型映射：Fable → `claude-fable-5-1`，Opus → `claude-opus-5-5`，Sonnet → `claude-sonnet-5-5`，Haiku → `claude-haiku-5-5`。执行时裁定：发给 `/model` 的是 alias（`fable` / `opus` / `sonnet` / `haiku`，实测可用），这样存为新 session 默认值的也是 alias；识别时 id、alias、display name 都认。
 
 ## 留给 builder 的
 

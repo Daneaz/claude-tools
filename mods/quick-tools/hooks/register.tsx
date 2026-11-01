@@ -13,6 +13,8 @@ import type { Status } from './logic'
 
 const PURPLE = '#c792ff'
 const INK = '#15161a'
+// ULTRA 关时的灰底。
+const GREY = '#3a3d48'
 // ULTRA 开时逐字底色，一字一色。
 const RAINBOW = [
   '#ff5f8a', '#ff8c64', '#ffb84d', '#e6dc5a', '#7ee787', '#58c4ff', '#78a0ff', '#aa8cff', '#c792ff',
@@ -26,7 +28,8 @@ const status = atom({ plugin: 'quick-tools', key: 'status' } as const, {
 })
 const isOpen = atom({ plugin: 'quick-tools', key: 'isOpen' } as const, false)
 
-// 本 mod 自己发的 `$.command.run` 不经过自己的 `command.run` hook，所以按下后自己读输出。
+// `$.command.run` 只跳过发起调用的那个 hook；onPress 不是 hook，所以这里的调用照常经过本 mod 的
+// `command.run` hook。hook 和这里都按同一份输出写 state，结果相同，重复写无害；这里另外处理没有输出时的兜底。
 // 交互模式下 `/model` `/effort` 是 local-jsx 命令，输出能否作为 `text` 回来没有验证过：
 // 没有输出（且没有 reject）时，按所请求的值更新；有输出就只信输出，认不出的（多半是报错）不动。
 async function run(
@@ -56,12 +59,24 @@ export const register: Register = on => {
   // 手敲 `/model` 却没拿到输出时，都从这里校正；认不出的不动。
   on('turn.step', async function* ($, e, next) {
     if (e.agentId === undefined) {
-      const model = modelKeyOf(e.model)
+      const model = modelKeyOf(e.model) ?? undefined
       const level = EFFORTS.find(x => x === e.effort)
-      await update($, status, s => ({ ...s, model: model ?? s.model, effort: level ?? s.effort }))
+      // 每一步都会进来：值没变就不写，免得每步都触发一次重画。
+      const s = await read($, status)
+      if ((model !== undefined && model !== s.model) || (level !== undefined && level !== s.effort)) {
+        await update($, status, st => ({ ...st, model: model ?? st.model, effort: level ?? st.effort }))
+      }
     }
 
     return yield* next(e)
+  })
+
+  // picker、meta+p、/config、fast mode、fallback 换的模型：effort 置 null，等下一步主循环报上来。
+  on('classic.PostModelSwitch', async ($, e, next) => {
+    const model = modelKeyOf(e.to_model)
+    await update($, status, s => ({ ...s, model: model ?? s.model, effort: null }))
+
+    return next(e)
   })
 
   // 用户手敲的 `/model` `/effort`。
@@ -104,9 +119,11 @@ export const register: Register = on => {
         <Button key={key} plain dimColor onPress={onPress}>{` ${label} `}</Button>
       )
 
-    const ultracode = !s.ultracode
-    const toggleUltra = () =>
-      run($, 'effort', `ultracode ${ultracode ? 'on' : 'off'}`, st => ({ ...st, ultracode }))
+    // 按下时再读一次 state，不用画的时候捕获的值。
+    const toggleUltra = async () => {
+      const ultracode = !(await read($, status)).ultracode
+      await run($, 'effort', `ultracode ${ultracode ? 'on' : 'off'}`, st => ({ ...st, ultracode }))
+    }
 
     return (
       <Box flexDirection="column" alignItems="flex-end">
@@ -114,18 +131,22 @@ export const register: Register = on => {
           <Box borderStyle="round" flexDirection="column" paddingX={1}>
             <Box flexWrap="wrap">
               {MODELS.map(m =>
+                // 已选中的再按一次：不发命令。
                 chip(`model-${m.key}`, m.label, s.model === m.key, () =>
-                  run($, 'model', m.id, st => ({ ...st, model: m.key, effort: null })),
+                  s.model === m.key
+                    ? undefined
+                    : run($, 'model', m.alias, st => ({ ...st, model: m.key, effort: null })),
                 ),
               )}
             </Box>
             <Box flexWrap="wrap">
               {EFFORTS.map(level => {
-                // 当前模型不支持的档：dim，按下不发命令。
+                // 当前模型不支持的档（2.1.316 上没有）：dim，按下不发命令；已选中的同样不发。
                 const isLive = supported.includes(level)
+                const isOn = isLive && s.effort === level
 
-                return chip(`effort-${level}`, level, isLive && s.effort === level, () =>
-                  isLive ? run($, 'effort', level, st => ({ ...st, effort: level })) : undefined,
+                return chip(`effort-${level}`, level, isOn, () =>
+                  isLive && !isOn ? run($, 'effort', level, st => ({ ...st, effort: level })) : undefined,
                 )
               })}
             </Box>
@@ -138,12 +159,15 @@ export const register: Register = on => {
                   ))}
                 </Button>
               ) : (
-                <Button key="ultra" plain dimColor onPress={toggleUltra}>{ULTRA}</Button>
+                <Button key="ultra" plain onPress={toggleUltra}>
+                  <Text backgroundColor={GREY} dimColor>{ULTRA}</Text>
+                </Button>
               )}
             </Box>
           </Box>
         )}
-        <Button key="toggle" label={buttonLabel(s, open)} onPress={() => update($, isOpen, o => !o)} />
+        {/* plain：不画 `[ ]`。 */}
+        <Button key="toggle" plain label={buttonLabel(s, open)} onPress={() => update($, isOpen, o => !o)} />
       </Box>
     )
   })

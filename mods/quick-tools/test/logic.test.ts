@@ -19,6 +19,13 @@ test('modelKeyOf reads ids, aliases and display names', async () => {
   expect(modelKeyOf('gpt-4')).toBeNull()
 })
 
+test('MODELS send aliases, which modelKeyOf reads back', async () => {
+  expect(MODELS.map(m => m.alias)).toEqual(['fable', 'opus', 'sonnet', 'haiku'])
+  for (const m of MODELS) {
+    expect(modelKeyOf(m.alias)).toBe(m.key)
+  }
+})
+
 test('effort output sets the level', async () => {
   const text =
     'Set effort level to xhigh (saved as your default for new sessions): Deeper reasoning than high, just below maximum (on supported models)'
@@ -51,7 +58,7 @@ test('model output sets the model', async () => {
   const saved = applyCommandResult(
     OPUS_HIGH,
     'model',
-    'claude-sonnet-5-5',
+    'sonnet',
     'Set model to `Sonnet 5.5` and saved as your default for new sessions',
   )
   expect(saved).toEqual({ ...OPUS_HIGH, model: 'sonnet', effort: null })
@@ -120,6 +127,24 @@ test('unrecognised output leaves state alone', async () => {
   for (const [command, args, text] of errors) {
     expect(applyCommandResult(OPUS_HIGH, command, args, text)).toBe(OPUS_HIGH)
   }
+})
+
+test('an effort change that turns ultracode off says so', async () => {
+  const ULTRA_HIGH: Status = { ...OPUS_HIGH, ultracode: true }
+  expect(
+    applyCommandResult(
+      ULTRA_HIGH,
+      'effort',
+      'low',
+      'Set effort level to low (this session only): Quick, straightforward · Ultracode off',
+    ),
+  ).toEqual({ ...OPUS_HIGH, effort: 'low', ultracode: false })
+  expect(
+    applyCommandResult(ULTRA_HIGH, 'effort', 'auto', 'Effort level set to auto (this session only) · Ultracode off'),
+  ).toEqual({ ...OPUS_HIGH, effort: null, ultracode: false })
+  expect(
+    applyCommandResult(OPUS_HIGH, 'effort', 'max', 'Set effort level to max (this session only): Maximum · Ultracode on'),
+  ).toEqual({ ...OPUS_HIGH, effort: 'max', ultracode: true })
 })
 
 test('buttonLabel', async () => {

@@ -7,7 +7,8 @@
 // - `/model` 成功：Set model to `Opus 5.5` and saved as your default for new sessions
 //   （非交互为 `… for this session only`；名字是 display name，外面套反引号）。
 // - `/effort <level>`：Set effort level to xhigh (saved as your default for new sessions): …
-//   （或 `(this session only)`）；本地 session 下不改 ultracode。
+//   （或 `(this session only)`）。设档位可能顺手关掉 ultracode，此时输出末尾带
+//   ` · Ultracode off`（截断形式、`Effort level set to auto` 同样；读源码看只在 remote transport 出现）。
 // - ultracode：`Ultracode on (this session only): dynamic workflows on every task. Effort stays medium.`
 //   与 `Ultracode off. Effort stays medium.`
 // - 报错（原样保留状态）：`Invalid argument: …`、`Ultracode isn't available on …`、
@@ -25,11 +26,13 @@ export type { Effort, ModelKey, Status }
 
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
-export const MODELS: readonly { key: ModelKey; label: string; id: string }[] = [
-  { key: 'fable', label: 'Fable', id: 'claude-fable-5-1' },
-  { key: 'opus', label: 'Opus', id: 'claude-opus-5-5' },
-  { key: 'sonnet', label: 'Sonnet', id: 'claude-sonnet-5-5' },
-  { key: 'haiku', label: 'Haiku', id: 'claude-haiku-5-5' },
+// 发给 `/model` 的是 alias（Step 1 实跑 `/model opus|sonnet|haiku|fable` 都成功）：
+// 交互模式会把参数存成新 session 的默认值，存 alias 能跟着版本升级，不钉死某个完整 id。
+export const MODELS: readonly { key: ModelKey; label: string; alias: string }[] = [
+  { key: 'fable', label: 'Fable', alias: 'fable' },
+  { key: 'opus', label: 'Opus', alias: 'opus' },
+  { key: 'sonnet', label: 'Sonnet', alias: 'sonnet' },
+  { key: 'haiku', label: 'Haiku', alias: 'haiku' },
 ]
 
 // id（claude-opus-5-5）、alias（opus）、display name（Opus 5.5）都含家族名。
@@ -63,15 +66,19 @@ export function applyCommandResult(
     return name === undefined ? s : { ...s, model: modelKeyOf(name), effort: null }
   }
 
+  // 设档位时 engine 若顺手关掉了 ultracode，会在末尾加 ` · Ultracode off`；没有后缀就不动。
+  const suffix = / \u00b7 Ultracode (on|off)\b/.exec(text)?.[1]
+  const ultracode = suffix === undefined ? s.ultracode : suffix === 'on'
+
   const level = asEffort(
     (/^Set effort level to (\w+)/.exec(text) ?? / set to '(\w+)' instead/.exec(text))?.[1],
   )
   if (level !== null) {
-    return { ...s, effort: level }
+    return { ...s, effort: level, ultracode }
   }
 
   if (/^Effort level set to auto\b/.test(text)) {
-    return { ...s, effort: null }
+    return { ...s, effort: null, ultracode }
   }
 
   const ultra = /^Ultracode (on|off)\b/.exec(text)?.[1]

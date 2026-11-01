@@ -79,18 +79,34 @@ echo '{"cwd":"'"$PWD"'","model":{"display_name":"Opus"},"context_window":{"remai
 
 band 最右侧常驻一个按钮，点开即可一键切换模型 / effort / ultracode。
 
+收起：
+
 ```
-展开后的面板：
-┌ quick-tools ──────────┐
-│ model   ● opus         │
-│         ○ sonnet       │
-│         ○ haiku        │
-│ effort  low medium high│
-│ ultracode        [off] │
-└────────────────────────┘
+                                              ⚡ Opus · high · ✦  [-]
 ```
 
-安装（在终端会话里输入）：
+展开（按钮上方，靠右；再按一次按钮或提交 prompt 时收起）：
+
+```
+                                 ╭──────────────────────────────────╮
+                                 │ Fable  [Opus]  Sonnet  Haiku     │
+                                 │ low  medium  [high]  xhigh  max  │
+                                 │  ✦ ULTRA                         │
+                                 ╰──────────────────────────────────╯
+                                              ⚡ Opus · high ▾    [-]
+```
+
+选中项紫底深字（图中用 `[ ]` 表示），其余 dim；` ✦ ULTRA ` 本身就是开关，开时彩虹底，关时灰底。
+
+注意：
+
+- 切换模型后 effort 显示 `?`，直到下一次请求时自动更新。
+- 点模型 / effort 等同于手敲 `/model` / `/effort`，会存为新 session 的默认值；ultracode 只作用于当前 session。
+- 开局读不到 ultracode 的状态，一律显示为关。
+
+安装方式二选一（两种都用 marketplace 名 `claude-tools`，不要同时添加）：
+
+从 GitHub 安装（在终端会话里输入）：
 
 ```
 /plugin install quick-tools --marketplace Daneaz/claude-tools
@@ -98,7 +114,14 @@ band 最右侧常驻一个按钮，点开即可一键切换模型 / effort / ult
 
 随后按 `y` 添加 marketplace，再选择 scope。
 
-注意：按钮的状态在切换模型后 effort 会显示 `?`，下一轮对话后自动更新；ultracode 开局显示为关。
+本机从 clone 目录安装：
+
+```
+claude plugin marketplace add <本仓库绝对路径>
+claude plugin install quick-tools@claude-tools
+```
+
+这种方式直接读 clone 目录里的 `mods/quick-tools`：改了源码后在会话里运行 `/reload-plugins` 即生效，无需重装。
 
 ## skills
 

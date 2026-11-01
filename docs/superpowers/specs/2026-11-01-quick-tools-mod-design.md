@@ -17,7 +17,7 @@
 
 - 「未来新 mod 的开关」：本次不做，以后单独设计。
 - 不用 `$.ui.open` 的 `Pane`（它的位置由 engine 决定，没法出现在按钮上方）。
-- 不支持 terminal 以外的 surface（desktop / vscode / mobile 可以什么都不画，直接 `next(e)`）。
+- 不支持 terminal 以外的 surface（desktop / vscode / mobile 什么都不画，直接 `next(e)`）。用户 2026-11-02 决定：桌面 app 不用 quick-tools（原生按钮里颜色不生效，选中态表达不出来）。
 
 ## 反目标（做到了也算失败）
 

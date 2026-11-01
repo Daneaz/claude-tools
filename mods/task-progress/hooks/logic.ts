@@ -106,21 +106,31 @@ function charWidth(ch: string): number {
   return wide ? 2 : 1
 }
 
+// 文本在终端里占的列数。
+export function textWidth(text: string): number {
+  let width = 0
+  for (const ch of text) width += charWidth(ch)
+  return width
+}
+
 // 按终端列宽截断：放得下原样返回，否则末尾补 `…`（1 列），总宽 ≤ columns。
 export function truncate(text: string, columns: number): string {
-  const chars = Array.from(text)
-  let width = 0
-  for (const ch of chars) width += charWidth(ch)
-  if (width <= columns) return text
+  if (textWidth(text) <= columns) return text
   if (columns <= 0) return ''
 
   let out = ''
   let used = 0
-  for (const ch of chars) {
+  for (const ch of text) {
     const w = charWidth(ch)
     if (used + w > columns - 1) break
     out += ch
     used += w
   }
   return out + '…'
+}
+
+// 截断到 columns 列后右补空格，正好占 columns 列：用于列对齐（按显示宽度，不按字符数）。
+export function fit(text: string, columns: number): string {
+  const cut = truncate(text, columns)
+  return cut + ' '.repeat(Math.max(0, columns - textWidth(cut)))
 }

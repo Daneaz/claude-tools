@@ -5,8 +5,10 @@ import {
   applyTaskUpdate,
   applyTodoWrite,
   clearIfFinished,
+  fit,
   summarize,
   sweep,
+  textWidth,
   truncate,
 } from '../hooks/logic'
 import type { Plan, Task, TaskStatus } from '../hooks/logic'
@@ -126,4 +128,18 @@ test('truncate by columns', async () => {
   expect(truncate('review 代码', 20)).toBe('review 代码')
   expect(truncate('一二三四五六', 7)).toBe('一二三…')
   expect(truncate('abcdef', 4)).toBe('abc…')
+})
+
+test('text width counts CJK as two', async () => {
+  expect(textWidth('review 代码')).toBe(11)
+  expect(textWidth('▰▱✓›…')).toBe(5)
+  expect(textWidth('')).toBe(0)
+})
+
+test('fit cuts then pads to the column', async () => {
+  expect(fit('查代码', 10)).toBe('查代码    ')
+  // 宽字符放不下时截断结果可能比列宽少 1 列，补空格补齐。
+  expect(fit('一二三四五六', 8)).toBe('一二三… ')
+  expect(textWidth(fit('一二三四五六', 8))).toBe(8)
+  expect(fit('abc', 3)).toBe('abc')
 })

@@ -30,7 +30,9 @@ const GUESSES: [keywords: string[], avatar: string][] = [
   [['data'], '📊'],
 ]
 
-export function avatarFor(type: string): { avatar: string; name: string } {
+export function avatarFor(fullType: string): { avatar: string; name: string } {
+  // plugin 带的 agent 形如 `superpowers:code-reviewer`：只看最后一个 `:` 之后。
+  const type = fullType.slice(fullType.lastIndexOf(':') + 1)
   const key = type.toLowerCase()
   const known = AVATARS[key]
   if (known) return known
@@ -249,7 +251,7 @@ export function formatEta(ms: number): string {
 
 // 总览用：拼成「剩余时间约 6 分钟」或「剩余时间不到 1 分钟」。
 export function formatEtaLong(ms: number): string {
-  return ms < 60000 ? '不到 1 分钟' : `${Math.round(ms / 60000)} 分钟`
+  return ms < 60000 ? '不到 1 分钟' : `约 ${Math.round(ms / 60000)} 分钟`
 }
 
 export function ordered(list: Agent[]): { running: Agent[]; ended: Agent[] } {

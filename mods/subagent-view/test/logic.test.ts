@@ -55,6 +55,12 @@ test('avatarFor uses the table and guesses the rest', async () => {
   expect(avatarFor('tech-writer').avatar).toBe('📝')
 })
 
+test('avatarFor strips a plugin prefix', async () => {
+  expect(avatarFor('superpowers:code-reviewer')).toEqual({ avatar: '🔍', name: 'CodeRevie…' })
+  expect(avatarFor('game:designer')).toEqual({ avatar: '🎨', name: 'Designer' })
+  expect(avatarFor('a:b:Explore')).toEqual({ avatar: '🔭', name: 'Explore' })
+})
+
 test('spawnAgent appends and ignores duplicate ids', async () => {
   const list = spawnAgent([], { agentId: 'a', type: 'Explore', description: '搜', now: 5 })
   expect(list).toEqual([
@@ -177,7 +183,7 @@ test('formatters', async () => {
   expect(formatElapsed(3780000)).toBe('1h03m')
   expect(formatEta(30000)).toBe('<1m')
   expect(formatEta(300000)).toBe('5m')
-  expect(formatEtaLong(360000)).toBe('6 分钟')
+  expect(formatEtaLong(360000)).toBe('约 6 分钟')
   expect(formatEtaLong(30000)).toBe('不到 1 分钟')
 })
 

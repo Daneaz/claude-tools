@@ -112,13 +112,23 @@ async function changeAgents($: EngineInterface, change: (list: Agent[]) => Agent
 // pane 是否打开以 engine 的记录为准：/clear 让 state 回到默认，但 pane 可能还开着。
 const isPaneOpen = async ($: EngineInterface) => (await $.ui.panes()).some(p => p.id === PANE)
 
+// 开局与 /clear 之后：注册命令（immediate：turn 进行中也能立刻开关），isOpen 按 pane 的实际状态重设。
+async function init($: EngineInterface) {
+  await $.command.register({ name: 'subagents', description: 'Show or hide the SubAgent View pane', immediate: true })
+  const open = await isPaneOpen($)
+  await update($, isOpen, () => open)
+  await syncTimer($)
+}
+
 export const register: Register = on => {
-  // 含 /clear 触发的那次：isOpen 按 pane 的实际状态重设。
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'subagents', description: 'Show or hide the SubAgent View pane' })
-    const open = await isPaneOpen($)
-    await update($, isOpen, () => open)
-    await syncTimer($)
+    await init($)
+    return next(e)
+  })
+
+  // /clear 换了新 session id，$.state 回到默认值，且不触发 session.start；只来 classic SessionStart（source: clear）。
+  on('classic.SessionStart', async ($, e, next) => {
+    if (e.source === 'clear') await init($)
     return next(e)
   })
 
@@ -132,7 +142,7 @@ export const register: Register = on => {
       await update($, isOpen, () => true)
     }
     await syncTimer($)
-    return { text: '' }
+    return {}
   })
 
   // 用 pane 自带的关闭操作关掉时也要跟着变；不拦截关闭。
@@ -229,7 +239,8 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (e.surface !== 'terminal') return next(e)
+    // terminal 与 desktop 都画；desktop 上 Text 用 mono，列与 terminal 一样对齐。vscode / mobile 交给下层。
+    if (e.surface !== 'terminal' && e.surface !== 'desktop') return next(e)
 
     const { Box, Text } = $.ui.resolve(e)
     const W = e.props.bodyColumns
@@ -243,10 +254,10 @@ export const register: Register = on => {
     if (list.length === 0) {
       return (
         <Box key="root" flexDirection="column">
-          <Box key="row-title"><Text color={BLUE} weight="bold">{TITLE}</Text></Box>
-          <Box key="row-gap"><Text> </Text></Box>
-          <Box key="row-empty-1"><Text dimColor>{truncate('这个 session 还没派出 subagent。', W)}</Text></Box>
-          <Box key="row-empty-2"><Text dimColor>{truncate('派出后会出现在这里。', W)}</Text></Box>
+          <Box key="row-title"><Text mono color={BLUE} weight="bold">{TITLE}</Text></Box>
+          <Box key="row-gap"><Text mono> </Text></Box>
+          <Box key="row-empty-1"><Text mono dimColor>{truncate('这个 session 还没派出 subagent。', W)}</Text></Box>
+          <Box key="row-empty-2"><Text mono dimColor>{truncate('派出后会出现在这里。', W)}</Text></Box>
         </Box>
       )
     }
@@ -263,10 +274,10 @@ export const register: Register = on => {
     const countsText = counts.map(c => c.text).join('  ')
     const titleRow = (
       <Box key="row-title">
-        <Text color={BLUE} weight="bold">{TITLE}</Text>
-        <Text>{pad(textWidth(TITLE), countsText)}</Text>
+        <Text mono color={BLUE} weight="bold">{TITLE}</Text>
+        <Text mono>{pad(textWidth(TITLE), countsText)}</Text>
         {counts.map((c, i) => (
-          <Text color={c.color}>{(i > 0 ? '  ' : '') + c.text}</Text>
+          <Text mono color={c.color}>{(i > 0 ? '  ' : '') + c.text}</Text>
         ))}
       </Box>
     )
@@ -275,17 +286,17 @@ export const register: Register = on => {
     const hasPlan = running.some(a => a.steps.length > 0)
     const summary = [
       hasPlan && `合计剩余 ${o.remainingSteps} 步`,
-      o.etaMs !== null && `剩余时间约 ${formatEtaLong(o.etaMs)}`,
+      o.etaMs !== null && `剩余时间${formatEtaLong(o.etaMs)}`,
     ].filter(s => s !== false)
     const summaryRow = summary.length > 0 && (
       <Box key="row-summary">
-        <Text dimColor>{truncate(summary.join('   '), W)}</Text>
+        <Text mono dimColor>{truncate(summary.join('   '), W)}</Text>
       </Box>
     )
 
     const divider = (key: string) => (
       <Box key={key}>
-        <Text dimColor>{'─'.repeat(W)}</Text>
+        <Text mono dimColor>{'─'.repeat(W)}</Text>
       </Box>
     )
 
@@ -293,9 +304,9 @@ export const register: Register = on => {
     const head = (a: Agent, room: number, dim = false) => {
       const { avatar, name } = avatarFor(a.type)
       return [
-        <Text>{`${avatar} `}</Text>,
-        <Text weight={dim ? 'regular' : 'bold'} dimColor={dim}>{fit(name, NAME)}</Text>,
-        <Text dimColor={dim}>{` ${truncate(a.description, room)}`}</Text>,
+        <Text mono>{`${avatar} `}</Text>,
+        <Text mono weight={dim ? 'regular' : 'bold'} dimColor={dim}>{fit(name, NAME)}</Text>,
+        <Text mono dimColor={dim}>{` ${truncate(a.description, room)}`}</Text>,
       ]
     }
 
@@ -308,19 +319,19 @@ export const register: Register = on => {
       const line1 = (
         <Box key={`row-${id}-1`}>
           {head(a, room)}
-          <Text>{pad(HEAD + textWidth(desc), right)}</Text>
-          <Text color={BLUE}>{spin}</Text>
-          <Text dimColor>{` ${elapsed}`}</Text>
+          <Text mono>{pad(HEAD + textWidth(desc), right)}</Text>
+          <Text mono color={BLUE}>{spin}</Text>
+          <Text mono dimColor>{` ${elapsed}`}</Text>
         </Box>
       )
 
       const p = progressOf(a)
-      const rows = [index > 0 && <Box key={`row-${id}-gap`}><Text> </Text></Box>, line1]
+      const rows = [index > 0 && <Box key={`row-${id}-gap`}><Text mono> </Text></Box>, line1]
       if (p.total === 0) {
         const recent = a.lastTool && `   最近：${a.lastTool.tool}${a.lastTool.hint ? ` ${a.lastTool.hint}` : ''}`
         rows.push(
           <Box key={`row-${id}-2`}>
-            <Text dimColor>{truncate(`${INDENT}没有计划${recent || ''}`, W)}</Text>
+            <Text mono dimColor>{truncate(`${INDENT}没有计划${recent || ''}`, W)}</Text>
           </Box>,
         )
         return rows
@@ -338,26 +349,26 @@ export const register: Register = on => {
       const used = INDENT.length + shown.length + more.length + 2 + count.length + textWidth(left)
       rows.push(
         <Box key={`row-${id}-2`}>
-          <Text>{INDENT}</Text>
+          <Text mono>{INDENT}</Text>
           {shown.map(s =>
             s.status === 'pending' ? (
-              <Text color={DARK}>▱</Text>
+              <Text mono color={DARK}>▱</Text>
             ) : (
-              <Text color={s.status === 'completed' ? GREEN : BLUE}>▰</Text>
+              <Text mono color={s.status === 'completed' ? GREEN : BLUE}>▰</Text>
             ),
           )}
-          <Text dimColor>{more}</Text>
-          <Text color={BLUE}>{`  ${count}`}</Text>
-          <Text dimColor>{left}</Text>
-          <Text>{pad(used, etaText)}</Text>
-          {typeof eta === 'number' ? <Text color={YELLOW}>{etaText}</Text> : <Text dimColor>{etaText}</Text>}
+          <Text mono dimColor>{more}</Text>
+          <Text mono color={BLUE}>{`  ${count}`}</Text>
+          <Text mono dimColor>{left}</Text>
+          <Text mono>{pad(used, etaText)}</Text>
+          {typeof eta === 'number' ? <Text mono color={YELLOW}>{etaText}</Text> : <Text mono dimColor>{etaText}</Text>}
         </Box>,
       )
       if (p.current) {
         const text = truncate(`${INDENT}› ${p.current.text}`, W)
         rows.push(
           <Box key={`row-${id}-3`}>
-            {p.current.isActive ? <Text color={BLUE}>{text}</Text> : <Text dimColor>{text}</Text>}
+            {p.current.isActive ? <Text mono color={BLUE}>{text}</Text> : <Text mono dimColor>{text}</Text>}
           </Box>,
         )
       }
@@ -378,11 +389,11 @@ export const register: Register = on => {
       const desc = truncate(a.description, room)
       return (
         <Box key={`row-${a.agentId}-ended`}>
-          <Text color={ok ? GREEN : RED}>{`${mark} `}</Text>
+          <Text mono color={ok ? GREEN : RED}>{`${mark} `}</Text>
           {head(a, room, true)}
-          <Text color={ok ? GREEN : RED}>{tail}</Text>
-          <Text>{pad(2 + HEAD + textWidth(desc) + textWidth(tail), elapsed)}</Text>
-          <Text dimColor>{elapsed}</Text>
+          <Text mono color={ok ? GREEN : RED}>{tail}</Text>
+          <Text mono>{pad(2 + HEAD + textWidth(desc) + textWidth(tail), elapsed)}</Text>
+          <Text mono dimColor>{elapsed}</Text>
         </Box>
       )
     }
@@ -396,7 +407,7 @@ export const register: Register = on => {
         {ended.length > 0 && running.length > 0 && divider('row-divider-2')}
         {ended.length > 0 && (
           <Box key="row-ended">
-            <Text dimColor>已结束</Text>
+            <Text mono dimColor>已结束</Text>
           </Box>
         )}
         {ended.map(endedRow)}

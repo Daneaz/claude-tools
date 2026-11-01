@@ -496,6 +496,17 @@ for (const [isOpen, props] of [
   })
 }
 
+// subagent-view 的 pane 在桌面 app 上也画，开关照常显示。
+test('subagents chip shows on desktop', async ($, on) => {
+  engine(on)
+  on('state.get', SUBAGENTS_OPEN, () => ({ value: { value: true, version: 1 } }))
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'toggle' })
+  expect((await ui.find({ key: 'subagents' }))?.text).toBe(' ◧ SubAgents ')
+  await ui.unmount()
+})
+
 test('pressing chip runs /subagents', async ($, on) => {
   const calls = engine(on)
   on('state.get', SUBAGENTS_OPEN, () => ({ value: { value: false, version: 1 } }))

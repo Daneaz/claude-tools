@@ -74,7 +74,11 @@ function engine(on: On, { panes = [] as string[] } = {}) {
   on('agent.list', () => ({ value: replies.agents() }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
-  on('command.register', () => ({ value: { command: 'subagents' } }))
+  const registered: unknown[] = []
+  on('command.register', (_, e) => {
+    registered.push(e)
+    return { value: { command: 'subagents' } }
+  })
   on('ui.panes', () => ({
     value: [...open].map(id => ({ id, title: 'SubAgent View', isShown: true, isFocused: false, isPlaced: true })),
   }))
@@ -91,7 +95,7 @@ function engine(on: On, { panes = [] as string[] } = {}) {
     return { value: undefined }
   })
 
-  return { clock, replies, opened, closed, isOpenAtClose }
+  return { clock, replies, opened, closed, isOpenAtClose, registered }
 }
 
 type SpawnInput = Parameters<Engine['agent']['spawn']>[0]
@@ -214,8 +218,25 @@ test('overview line', async ($, on) => {
   const ui = await $.ui.mount(PANE)
 
   expect(await hasRow(ui, 'SubAgent View', '2 在跑')).toBe(true)
-  expect(await hasRow(ui, '合计剩余 7 步', '剩余时间约')).toBe(true)
+  expect(await hasRow(ui, '合计剩余 7 步', '剩余时间')).toBe(true)
   await ui.unmount()
+})
+
+// 不到 1 分钟时不带「约」；否则「约 N 分钟」。
+test('overview eta wording', async ($, on) => {
+  const { clock } = engine(on)
+  const a = await spawn($)
+  await write($, plan(7, 3), a)
+  const ui = await $.ui.mount(PANE)
+  expect(await hasRow(ui, '剩余时间不到 1 分钟')).toBe(true)
+  expect(await hasRow(ui, '剩余时间约')).toBe(false)
+  await ui.unmount()
+
+  // 已跑 4.5 分钟完成 3 步：剩 4 步约 6 分钟。
+  await clock.advance(270_000)
+  const later = await $.ui.mount(PANE)
+  expect(await hasRow(later, '剩余时间约 6 分钟')).toBe(true)
+  await later.unmount()
 })
 
 test('ended agents sink', async ($, on) => {
@@ -285,6 +306,20 @@ test('command toggles pane', async ($, on) => {
   expect(isOpen).toBe(false)
 })
 
+test('/subagents is immediate and prints nothing', async ($, on) => {
+  const { registered } = engine(on)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  expect(registered).toEqual([expect.objectContaining({ name: 'subagents', immediate: true })])
+
+  const r = await $.command.run({
+    command: 'subagents',
+    args: '',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: true, columns: 160 },
+  })
+  expect(r.text).toBeUndefined()
+})
+
 // 测试的 $ 没有 ui.close，engine 层 hook 也不能调 $.ui.close，无法以 person 身份关闭；
 // 借命令发起的关闭走同一条 ui.close 链：engine 收到关闭时 isOpen 已是 false，说明清它的是 ui.close hook（不看 origin）。
 test('ui.close hook clears isOpen', async ($, on) => {
@@ -296,7 +331,7 @@ test('ui.close hook clears isOpen', async ($, on) => {
   expect(isOpenAtClose).toEqual([false])
 })
 
-// /clear：state 回到默认（isOpen false），pane 却还开着；session.start 按 ui.panes 纠正，命令据实际状态关闭。
+// 开局时 pane 已开着（如 resume 前留下的）：session.start 按 ui.panes 纠正 isOpen，命令据实际状态关闭。
 test('session.start syncs isOpen with open panes', async ($, on) => {
   const { opened, closed } = engine(on, { panes: ['subagent-view'] })
   let isOpen: unknown
@@ -312,6 +347,21 @@ test('session.start syncs isOpen with open panes', async ($, on) => {
   expect(closed).toEqual(['subagent-view'])
   expect(opened).toEqual([])
   expect(isOpen).toBe(false)
+})
+
+// /clear 不触发 session.start，只来 classic SessionStart(source: clear)：同样重注册命令、按 ui.panes 纠正 isOpen。
+test('after /clear isOpen follows the still-open pane', async ($, on) => {
+  const { registered } = engine(on, { panes: ['subagent-view'] })
+  on('classic.SessionStart', () => ({}))
+  let isOpen: unknown
+  on('state.set', { plugin: 'subagent-view', key: 'isOpen' }, (_, e, next) => {
+    isOpen = e.value
+    return next(e)
+  })
+
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  expect(isOpen).toBe(true)
+  expect(registered).toEqual([expect.objectContaining({ name: 'subagents', immediate: true })])
 })
 
 test('session.start without the pane leaves isOpen false', async ($, on) => {
@@ -405,7 +455,23 @@ test('layout fits bodyColumns', async ($, on) => {
   await ui.unmount()
 })
 
-for (const surface of ['desktop'] as const) {
+// 桌面 app 也画同样的 pane；Text 都用 mono，列与 terminal 一样对齐。
+test('draws on desktop too', async ($, on) => {
+  engine(on)
+  const a = await spawn($)
+  await write($, plan(7, 3), a)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  expect(await hasRow(ui, 'SubAgent View', '1 在跑')).toBe(true)
+  expect(await hasRow(ui, '🎨', 'Designer', '出登录页设计稿')).toBe(true)
+  expect(await hasRow(ui, '3/7', '剩 4 步')).toBe(true)
+  const texts = (await ui.findAll({ type: 'Text' })) as unknown as { props: { mono?: boolean } }[]
+  expect(texts.length).toBeGreaterThan(0)
+  for (const t of texts) expect(t.props.mono).toBe(true)
+  await ui.unmount()
+})
+
+for (const surface of ['vscode'] as const) {
   test('other surfaces pass', async ($, on) => {
     engine(on)
     on('ui.render', ($, e) => {

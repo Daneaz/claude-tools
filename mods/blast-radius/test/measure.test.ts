@@ -151,7 +151,7 @@ test('push lists dropped commits', async () => {
   const report = await measure(run, gitRisk('git-push-force', ['-f', 'up', 'feat:dev']), '/repo')
   expect(calls[1]?.argv).toEqual(['git', 'log', '--oneline', '--no-decorate', 'feat..up/dev'])
   expect(report.count).toBe(2)
-  expect(report.summary).toContain('丢掉远端 2 个 commit')
+  expect(report.summary).toBe('丢掉 up/dev 上 2 个 commit')
   expect(report.lines).toEqual([
     { mark: '−', text: 'abc123 one' },
     { mark: '−', text: 'def456 two' },

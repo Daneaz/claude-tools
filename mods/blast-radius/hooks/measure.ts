@@ -189,7 +189,7 @@ async function measurePush(run: Run, risk: GitRisk, cwd: string): Promise<Report
   const log = await run(['git', 'log', '--oneline', '--no-decorate', `${source}..${ref}`], { cwd, timeoutMs: 15000 })
   const dropped = log.stdout.split('\n').filter((l) => l !== '')
   return {
-    summary: dropped.length === 0 ? `强推到 ${ref}：不会丢掉 commit` : `丢掉远端 ${dropped.length} 个 commit`,
+    summary: dropped.length === 0 ? `强推到 ${ref}：不会丢掉 commit` : `丢掉 ${ref} 上 ${dropped.length} 个 commit`,
     count: dropped.length,
     lines: dropped.slice(0, LIST_MAX).map((text) => ({ mark: '−', text })),
     more: Math.max(0, dropped.length - LIST_MAX),

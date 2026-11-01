@@ -77,6 +77,13 @@ test('pills', async () => {
   expect(many.seen + 1 + many.rest).toBe(10)
 })
 
+test('pills window follows current', async () => {
+  // 超过封顶时可见的 10 个胶囊随当前步滑动（同 listWindow 居中），当前步始终画出。
+  expect(pills(14, 12)).toEqual({ seen: 8, current: true, rest: 1, overflow: 4 })
+  expect(pills(14, 13)).toEqual({ seen: 9, current: true, rest: 0, overflow: 4 })
+  expect(pills(14, 5)).toEqual({ seen: 5, current: true, rest: 4, overflow: 4 })
+})
+
 test('relPath', async () => {
   expect(relPath('/repo', '/repo/src/a.ts')).toBe('src/a.ts')
   expect(relPath('/repo', '/other/a.ts')).toBe('/other/a.ts')

@@ -104,12 +104,13 @@ export function listWindow(total: number, index: number, size = 7): { start: num
 }
 
 // 胶囊：看过的（序号 < index）、当前一个、没看的；最多 cap 个，超出的数量记在 overflow（画成 +N）。
+// 超过 cap 时可见的一段随当前步滑动（同 listWindow 居中），当前步始终画出。只在有回放（total > 0）时调用。
 export function pills(
   total: number,
   index: number,
   cap = 10,
 ): { seen: number; current: boolean; rest: number; overflow: number } {
-  const shown = Math.min(total, cap)
-  const seen = Math.min(index, shown - 1)
-  return { seen, current: true, rest: shown - 1 - seen, overflow: total - shown }
+  const { start, end } = listWindow(total, index, cap)
+  const seen = index - start
+  return { seen, current: true, rest: end - start - 1 - seen, overflow: total - (end - start) }
 }

@@ -63,6 +63,8 @@ bar() {
   awk -v p="$1" -v n="$2" 'BEGIN { f = int(p * n / 100 + 0.5); if (f > n) f = n
     s = ""; for (i = 0; i < n; i++) s = s (i < f ? "▰" : "▱"); printf "%s", s }'
 }
+# 时间戳格式化:BSD date 用 -r <秒>,GNU date 用 -d @<秒>
+fmt_time() { date -r "$1" "+$2" 2>/dev/null || date -d "@$1" "+$2" 2>/dev/null; }
 meter() { # meter <标签> <百分比> <格数> <重置时间>
   pct=$(printf '%.0f' "$2")
   printf '%s%s %s %s%%' "$(level_color "$pct")" "$1" "$(bar "$pct" "$3")" "$pct"
@@ -94,11 +96,11 @@ if [ -n "$remaining" ]; then
   gauge=$(meter ctx "$used" 10 "")
 fi
 if [ -n "$five_pct" ]; then
-  t=""; [ -n "$five_reset" ] && t=$(date -r "$five_reset" "+%H:%M" 2>/dev/null)
+  t=""; [ -n "$five_reset" ] && t=$(fmt_time "$five_reset" %H:%M)
   gauge="$gauge${gauge:+  }$(meter 5h "$five_pct" 5 "$t")"
 fi
 if [ -n "$week_pct" ]; then
-  t=""; [ -n "$week_reset" ] && t=$(date -r "$week_reset" "+%m/%d" 2>/dev/null)
+  t=""; [ -n "$week_reset" ] && t=$(fmt_time "$week_reset" %m/%d)
   gauge="$gauge${gauge:+  }$(meter 7d "$week_pct" 5 "$t")"
 fi
 

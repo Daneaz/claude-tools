@@ -70,8 +70,8 @@ echo '{"cwd":"'"$PWD"'","model":{"display_name":"Opus"},"context_window":{"remai
 
 ### 平台说明
 
-- 在 macOS 上开发和测试。
-- Linux 上主体可用，但重置时间用了 BSD 的 `date -r <秒>`，GNU `date` 不认，`↻` 后面的时间会显示为空。
+- macOS 与 Linux 均可用：重置时间先试 BSD `date -r`，失败再用 GNU `date -d @`。
+- 在 macOS 上开发和实测；Linux 分支由 `tests/test_statusline_date.sh` 用模拟的 GNU `date` 覆盖。
 
 ## mods / skills
 

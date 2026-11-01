@@ -437,3 +437,73 @@ test('composes the band below', async ($, on) => {
   expect(await ui.find({ key: 'toggle' })).toBeDefined()
   await ui.unmount()
 })
+
+// SubAgent View 的 pane 是否打开：那个 mod 的 state，没装时读到 undefined。
+const SUBAGENTS_OPEN = { plugin: 'subagent-view', key: 'isOpen' } as const
+
+test('subagents chip hidden when subagent-view absent', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'ultra' })).toBeDefined()
+  expect(await ui.find({ key: 'subagents' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('subagents chip hidden when reading subagent-view fails', async ($, on) => {
+  engine(on)
+  on('state.get', SUBAGENTS_OPEN, () => {
+    throw new Error('no such plugin')
+  })
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ key: 'ultra' })).toBeDefined()
+  expect(await ui.find({ key: 'subagents' })).toBeUndefined()
+  await ui.unmount()
+})
+
+for (const [isOpen, props] of [
+  [true, { backgroundColor: '#8ab4ff', color: '#15161a' }],
+  [false, { backgroundColor: '#3a3d48', dimColor: true }],
+] as const) {
+  test(`subagents chip reflects isOpen ${isOpen}`, async ($, on) => {
+    engine(on)
+    on('state.get', SUBAGENTS_OPEN, () => ({ value: { value: isOpen, version: 1 } }))
+    await start($)
+    const ui = await $.ui.mount(BAND)
+    await ui.press({ key: 'toggle' })
+
+    const chip = await ui.find({ key: 'subagents' })
+    expect(chip?.text).toBe(' ◧ SubAgents ')
+    expect(chip?.children).toEqual([expect.objectContaining({ props: expect.objectContaining(props) })])
+    await ui.unmount()
+  })
+}
+
+// subagent-view 的 pane 在桌面 app 上也画，开关照常显示。
+test('pressing chip runs /subagents', async ($, on) => {
+  const calls = engine(on)
+  on('state.get', SUBAGENTS_OPEN, () => ({ value: { value: false, version: 1 } }))
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  await ui.press({ key: 'subagents' })
+
+  expect(calls).toEqual([{ command: 'subagents', args: '' }])
+  await ui.unmount()
+})
+
+test('pressing chip swallows a failing /subagents', async ($, on) => {
+  engine(on, () => {
+    throw new Error('engine failed')
+  })
+  on('state.get', SUBAGENTS_OPEN, () => ({ value: { value: true, version: 1 } }))
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  await ui.press({ key: 'subagents' })
+  expect(await ui.find({ key: 'subagents' })).toBeDefined()
+  await ui.unmount()
+})

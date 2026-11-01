@@ -92,11 +92,13 @@ band 最右侧常驻一个按钮，点开即可一键切换模型 / effort / ult
                                  │ Fable  [Opus]  Sonnet  Haiku     │
                                  │ low  medium  [high]  xhigh  max  │
                                  │  ✦ ULTRA                         │
+                                 │  ◧ SubAgents                     │
                                  ╰──────────────────────────────────╯
                                               ⚡ Opus · high ▾    [-]
 ```
 
 选中项紫底深字（图中用 `[ ]` 表示），其余 dim；` ✦ ULTRA ` 本身就是开关，开时彩虹底，关时灰底。
+装了 subagent-view 时 ULTRA 下面多一行 ` ◧ SubAgents `，等同于 `/subagents`：pane 打开时蓝底，关闭时灰底；没装时不显示。
 
 注意：
 
@@ -140,6 +142,36 @@ claude plugin install quick-tools@claude-tools
 ```
 claude plugin marketplace add <本仓库绝对路径>
 claude plugin install task-progress@claude-tools
+```
+
+### subagent-view
+
+对话右侧的一个 pane，显示主会话派出的每个 subagent：顶部总览在跑 / 完成 / 失败数、合计剩余步数和预计剩余时间；每个在跑的 subagent 显示任务说明、已跑时长、它自己计划的进度（`3/7`、剩几步、预计剩余）和当前在做的那一步；结束的缩成一行放到底部「已结束」下。用 `/subagents` 开关 pane（默认关闭）；与 quick-tools 同时安装时，quick-tools 面板里的 ` ◧ SubAgents ` 开关效果相同（quick-tools 只在终端显示）。pane 支持终端与 Claude 桌面 app（VS Code 扩展里不画），桌面 app 里用 `/subagents` 开关。
+
+```
+SubAgent View          3 在跑  1 完成  1 失败
+合计剩余 12 步   剩余时间约 6 分钟
+──────────────────────────────────────────────
+🎨 Designer  出登录页设计稿         ⠋ 4m12s
+   ▰▰▰▱▱▱▱  3/7  剩 4 步             ≈ 5m
+   › 正在画表单状态
+```
+
+注意：进度只按 subagent 自己列的计划步数算，预计时间只是估算；没有计划的 subagent 只显示最近一次工具调用。
+
+安装方式与 quick-tools 相同（marketplace 名同为 `claude-tools`，已添加过就不用再加）：
+
+从 GitHub 安装（在终端会话里输入）：
+
+```
+/plugin install subagent-view --marketplace Daneaz/claude-tools
+```
+
+本机从 clone 目录安装：
+
+```
+claude plugin marketplace add <本仓库绝对路径>
+claude plugin install subagent-view@claude-tools
 ```
 
 ### blast-radius

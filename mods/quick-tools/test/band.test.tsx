@@ -19,8 +19,29 @@ const BAND = {
 type Call = { command: string; args: string }
 
 // 充当 engine：会话模型是 Opus，`turn.step` 不发请求，记下每条命令并按 reply 回输出。
-function engine(on: On, reply: (call: Call) => string | undefined = () => undefined): Call[] {
+// AbovePrompt 默认是 engine 自己（什么都不画）；`low` 时换成一个更低层 mod 画的 `low`；
+// `none` 时不注册，由测试自己注册。
+function engine(
+  on: On,
+  reply: (call: Call) => string | undefined = () => undefined,
+  { band = 'engine' }: { band?: 'engine' | 'low' | 'none' } = {},
+): Call[] {
   const calls: Call[] = []
+  if (band !== 'none') {
+    on('ui.render', ($, e) => {
+      if (band === 'engine') {
+        return { type: 'engine', ref: 0 }
+      }
+      // Text 的 key 会被引擎丢弃，只能用 keyed Box 来找。
+      const { Box, Text } = $.ui.resolve(e)
+
+      return (
+        <Box key="low">
+          <Text>x</Text>
+        </Box>
+      )
+    })
+  }
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
@@ -241,7 +262,7 @@ for (const [name, props, surface] of [
   ['other surfaces pass', BAND.props, 'desktop'],
 ] as const) {
   test(name, async ($, on) => {
-    engine(on)
+    engine(on, undefined, { band: 'none' })
     on('ui.render', ($, e) => {
       const { Text } = $.ui.resolve(e)
 
@@ -405,5 +426,14 @@ test('after /clear the button reads model and effort again', async ($, on) => {
   await $.classic.SessionStart({ source: 'clear' } as never)
   const ui = await $.ui.mount(BAND)
   expect(await toggleText(ui)).toBe('⚡ Opus · medium')
+  await ui.unmount()
+})
+
+test('composes the band below', async ($, on) => {
+  engine(on, undefined, { band: 'low' })
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ key: 'low' })).toBeDefined()
+  expect(await ui.find({ key: 'toggle' })).toBeDefined()
   await ui.unmount()
 })

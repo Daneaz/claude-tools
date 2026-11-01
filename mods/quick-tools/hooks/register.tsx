@@ -133,6 +133,8 @@ export const register: Register = on => {
       return next(e)
     }
 
+    // 下层（task-progress 等其他 mod、engine 自己）的画面放在按钮上方；按钮留在最下、最右。
+    const below = await next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
     const s = await read($, status)
     const open = await read($, isOpen)
@@ -154,7 +156,7 @@ export const register: Register = on => {
       await run($, 'effort', `ultracode ${ultracode ? 'on' : 'off'}`, st => ({ ...st, ultracode }))
     }
 
-    return (
+    const root = (
       // 撑满 band 宽度，按钮才会落在最右侧（不设宽度时 Box 只有内容那么宽）。
       <Box key="root" width={e.props.bodyColumns} flexDirection="column" alignItems="flex-end">
         {open && (
@@ -203,6 +205,16 @@ export const register: Register = on => {
           <Button key="toggle" plain label={buttonLabel(s, open)} onPress={() => update($, isOpen, o => !o)} />
         </Box>
       </Box>
+    )
+
+    // 下层什么都没画时只返回本 mod 的 root，结构与组合前一致。
+    return below ? (
+      <Box key="stack" flexDirection="column">
+        {below}
+        {root}
+      </Box>
+    ) : (
+      root
     )
   })
 }

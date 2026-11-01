@@ -123,6 +123,25 @@ claude plugin install quick-tools@claude-tools
 
 这种方式直接读 clone 目录里的 `mods/quick-tools`：改了源码后在会话里运行 `/reload-plugins` 即生效，无需重装。
 
+### task-progress
+
+band 上常驻一行当前 session 计划（TodoWrite / Task 工具）的进度，点开可逐条查看每个任务的状态；与 quick-tools 同时安装时，进度行在上、quick-tools 按钮在下。
+
+安装方式与 quick-tools 相同（marketplace 名同为 `claude-tools`，已添加过就不用再加）：
+
+从 GitHub 安装（在终端会话里输入）：
+
+```
+/plugin install task-progress --marketplace Daneaz/claude-tools
+```
+
+本机从 clone 目录安装：
+
+```
+claude plugin marketplace add <本仓库绝对路径>
+claude plugin install task-progress@claude-tools
+```
+
 ## skills
 
 待添加。

@@ -1,9 +1,14 @@
+// Copyright 2026 Anthropic PBC
+// SPDX-License-Identifier: Apache-2.0
+//
+// 改编自 claude-code-playground 的 Replay Theater，有修改（外观、文案与部分行为）。
+
 // Replay Theater：记下一轮里 Claude 的文件编辑，轮次结束后在 band 提示，按需逐步回放每次编辑的 diff。
 // 改编自 claude-code-playground 的 Replay Theater（Apache-2.0）；外观换成「步骤清单 + 当前步 diff」，文案中文。
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 
-import { countChanges, diffLines, fileCount, fitStart, listWindow, MAX_DIFF_LINES, pills, relPath, textWidth } from './logic'
+import { countChanges, diffLines, fileCount, fitEnd, fitStart, listWindow, MAX_DIFF_LINES, pills, relPath, textWidth } from './logic'
 import type { Step } from './logic'
 
 const PANE_ID = 'replay-theater'
@@ -19,6 +24,8 @@ const MIN_DIFF = 3
 const FIXED_ROWS = 5
 // band 内展开时给下层（quick-tools、Blast Radius 等）至少留的行数，同 task-progress。
 const RESERVED = 3
+// pane 估算行数时多留的 1 行余量。
+const PANE_SLACK = 1
 const PANE_COLUMNS = 72
 
 // 紫与 quick-tools 的模型紫一致；其余用 theme key，跟着终端主题走。
@@ -92,12 +99,12 @@ async function stepsFor($: EngineInterface, e: Record<string, unknown>): Promise
   return []
 }
 
-// pane 行数按内容估算：清单窗口（含上下省略行）+ 最长的 diff（含「还有」行）+ 标题、按钮与空行 6。
+// pane 行数按内容估算：清单窗口（含上下省略行）+ 最长的 diff（含「还有」行）+ 固定行与余量。
 function paneRows(): number {
   const list = Math.min(replay.length, LIST_SIZE) + (replay.length > LIST_SIZE ? 2 : 0)
   const longest = Math.max(1, ...replay.map(s => s.diff.length))
   const diff = Math.min(longest, MAX_DIFF_LINES) + (longest > MAX_DIFF_LINES ? 1 : 0)
-  return list + diff + 6
+  return list + diff + FIXED_ROWS + PANE_SLACK
 }
 
 async function openReplay($: EngineInterface): Promise<boolean> {
@@ -128,17 +135,14 @@ function fitWindow(total: number, k: number, size: number, budget: number) {
   return listWindow(total, k, 1)
 }
 
-function fitEnd(text: string, size: number): string {
-  const chars = [...text]
-  return chars.length <= size ? text : chars.slice(0, Math.max(0, size - 1)).join('') + '…'
-}
-
 const pad = (text: string, size: number) => text + ' '.repeat(Math.max(0, size - textWidth(text)))
 
 // 回放视图：标题行、步骤清单、当前步 diff、按钮。画在 Pane 里，或窄终端下画在 band 里。
 async function replayView($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pane'>, isBand: boolean, columns: number, maxRows: number) {
   const { Box, Button, Text } = $.ui.resolve(e)
   const total = replay.length
+  // 轮次进行中（如 Blast Radius 拦截时）band 里只留标题行，保证下层按钮可见。
+  const isCollapsed = isBand && e.component === 'AbovePrompt' && e.props.isWorking
   const k = Math.max(0, Math.min(await read($, index), total - 1))
   const step = replay[k]
   if (step === undefined) {
@@ -271,12 +275,20 @@ async function replayView($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pa
   const go = async (delta: number) => {
     await update($, index, i => Math.max(0, Math.min(i + delta, replay.length - 1)))
   }
-  // 自己发的 $.ui.close 不会经过本 mod 的 ui.close hook，所以这里自己收起；band 里没有 pane 要关。
+  // 本 mod 自己发的 $.ui.close 不会回到自己的 ui.close hook（测试 kit 实测），所以这里自己收起状态。
+  // band 模式下 pane 也已 open（只是没画出来），同样要关掉，免得终端变宽后突然冒出来。
   const close = async () => {
-    const wasInBand = await read($, inBand)
     await update($, isOpen, () => false)
     await update($, inBand, () => false)
-    if (!wasInBand) await $.ui.close({ id: PANE_ID })
+    await $.ui.close({ id: PANE_ID })
+  }
+
+  if (isCollapsed) {
+    return (
+      <Box key="rt-view" flexDirection="column">
+        {title}
+      </Box>
+    )
   }
 
   return (
@@ -304,6 +316,9 @@ export const register: Register = on => {
   // 斜杠命令 /replay 打开回放。
   on('session.start', async ($, e, next) => {
     const r = await next(e)
+    // pane 可能已被 unload：开关复位，免得 band 卡在「已打开」。
+    await update($, isOpen, () => false)
+    await update($, inBand, () => false)
     await $.command.register({ name: 'replay', description: '回放上一轮的文件编辑' })
     return r
   })
@@ -387,8 +402,7 @@ export const register: Register = on => {
 
   // 用户关了 pane（Esc 等）：同步开关。
   on('ui.close', async ($, e, next) => {
-    // 同原版：id 与 requestId 都认。
-    if (e.id === PANE_ID || (e as { requestId?: string }).requestId === PANE_ID) {
+    if (e.id === PANE_ID) {
       await update($, isOpen, () => false)
       await update($, inBand, () => false)
     }

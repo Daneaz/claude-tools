@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { countChanges, diffLines, fileCount, fitStart, listWindow, pills, relPath, textWidth } from '../hooks/logic'
+import { cleanLine, countChanges, diffLines, fileCount, fitEnd, fitStart, listWindow, pills, relPath, textWidth } from '../hooks/logic'
 import type { Step } from '../hooks/logic'
 
 test('edit diff with context', async () => {
@@ -68,6 +68,27 @@ test('window keeps current visible', async () => {
     const w = listWindow(20, i)
     expect(w.start <= i && i < w.end).toBe(true)
   }
+})
+
+test('pills empty', async () => {
+  expect(pills(0, 0)).toEqual({ seen: 0, current: false, rest: 0, overflow: 0 })
+})
+
+test('fitEnd by column width', async () => {
+  expect(fitEnd('short', 10)).toBe('short')
+  const cjk = fitEnd('这是一行很长很长的中文注释内容', 11)
+  expect(textWidth(cjk)).toBeLessThanOrEqual(11)
+  expect(cjk.endsWith('…')).toBe(true)
+  const tabbed = fitEnd('\t\tconst x = 1 // 注释', 12)
+  expect(tabbed).not.toContain('\t')
+  expect(textWidth(tabbed)).toBeLessThanOrEqual(12)
+})
+
+test('cleanLine strips control chars', async () => {
+  expect(cleanLine('a\r')).toBe('a')
+  expect(cleanLine('\tx')).toBe('    x')
+  expect(cleanLine('\u001b[31mred\u0000\u007f')).toBe('\ufffd[31mred\ufffd\ufffd')
+  expect(diffLines('a\r\nb\r\n', 'a\nb\n')).toEqual([{ op: ' ', t: 'a' }, { op: ' ', t: 'b' }])
 })
 
 test('pills', async () => {

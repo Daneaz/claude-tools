@@ -409,7 +409,7 @@ test('new turn replaces replay', async ($, on) => {
 })
 
 test('band replay keeps lower', async ($, on) => {
-  const { clock, replies } = engine(on)
+  const { clock, replies, closed } = engine(on)
   replies.open = () => ({ isPlaced: false, reason: 'no-room' }) as UiOpenResult
   await threeEdits($)
   await replay($, clock)
@@ -422,6 +422,82 @@ test('band replay keeps lower', async ($, on) => {
   expect(await ui.find({ key: 'rt-title' })).toBeUndefined()
   expect(await ui.find({ key: 'rt-hint' })).toBeDefined()
   expect(await ui.find({ key: 'low' })).toBeDefined()
+  // band 模式下 pane 也已 open（未绘制），关闭时同样发 ui.close。
+  expect(closed).toEqual(['replay-theater'])
+  await ui.unmount()
+})
+
+test('band replay collapses while working', async ($, on) => {
+  const { clock, replies } = engine(on)
+  replies.open = () => ({ isPlaced: false, reason: 'no-room' }) as UiOpenResult
+  await threeEdits($)
+  await replay($, clock)
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: true } })
+
+  const keys = await boxKeys(ui)
+  expect(keys).toContain('rt-title')
+  expect(keys.filter(k => /^rt-(step|more|diff)|^rt-buttons$/.test(k))).toEqual([])
+  expect(await ui.find({ key: 'low' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('session start resets open state', async ($, on) => {
+  const { clock } = engine(on)
+  await threeEdits($)
+  await replay($, clock)
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ key: 'rt-hint' })).toBeUndefined()
+
+  await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+  expect(await ui.find({ key: 'rt-hint' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('pane buttons hotkeys', async ($, on) => {
+  const { clock } = engine(on)
+  await threeEdits($)
+  await replay($, clock)
+  const ui = await $.ui.mount(PANE)
+
+  for (const [key, hotkey] of [['prev', 'p'], ['next', 'n'], ['close', 'c']] as const) {
+    const button = (await ui.find({ key })) as { props: Record<string, unknown> } | undefined
+    expect(button?.props).toBeDefined()
+    expect(button?.props.hotkey).toBe(hotkey)
+  }
+  await ui.unmount()
+})
+
+test('long and tabbed diff lines fit the pane', async ($, on) => {
+  const { clock } = engine(on)
+  const long = '这是一行很长很长的中文注释内容，'.repeat(8)
+  await startTurn($)
+  await writeFile($, 'w.ts', `${long}\n\t\t\t\t\t\t\t\t\t\t${'x'.repeat(60)}\n`)
+  await $.turn.complete(DONE)
+  await replay($, clock)
+  const ui = await $.ui.mount(PANE)
+
+  for (const key of ['rt-diff-0', 'rt-diff-1']) {
+    const text = (await textOf(ui, key)) ?? ''
+    expect(text).not.toContain('\t')
+    expect(textWidth(text)).toBeLessThanOrEqual(PANE.props.bodyColumns)
+  }
+  await ui.unmount()
+})
+
+test('control chars still render', async ($, on) => {
+  const { clock } = engine(on)
+  await startTurn($)
+  await edit($, 'c.ts', 'plain\r\nkeep\r\n', '\u001b[31mred\u001b[0m\r\nnul\u0000here\r\nkeep\r\n')
+  await $.turn.complete(DONE)
+  await replay($, clock)
+  const ui = await $.ui.mount(PANE)
+
+  expect(await textOf(ui, 'rt-title')).toContain('1/1')
+  for (const key of ['prev', 'next', 'close']) expect(await ui.find({ key })).toBeDefined()
+  const diff = (await boxKeys(ui)).filter(k => /^rt-diff-\d+$/.test(k))
+  const texts = await Promise.all(diff.map(k => textOf(ui, k)))
+  expect(texts.join('\n')).toContain('\ufffd[31mred')
+  expect(texts.join(' ')).not.toMatch(/[\u0000-\u001f\u007f]/)
   await ui.unmount()
 })
 

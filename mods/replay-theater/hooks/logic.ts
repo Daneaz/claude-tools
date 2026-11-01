@@ -1,3 +1,8 @@
+// Copyright 2026 Anthropic PBC
+// SPDX-License-Identifier: Apache-2.0
+//
+// 改编自 claude-code-playground 的 Replay Theater，有修改（外观、文案与部分行为）。
+
 // 纯逻辑：路径缩写、行 diff 与上下文裁剪、计数、步骤清单窗口与胶囊。移植自 Replay Theater 原版。
 
 import type { DiffLine, Step } from '../types'
@@ -15,12 +20,19 @@ export function relPath(cwd: string, path?: string): string {
   return path
 }
 
-// 按行切分；末尾换行不产生空行，空文本为零行。
+const TAB = '    '
+
+// 一行 diff 文本能安全画出：去掉行尾 \r，tab 展开成空格，其余 C0 控制字符与 DEL 换成 �（surface 拒收控制字符）。
+export function cleanLine(line: string): string {
+  return line.replace(/\r$/, '').replace(/\t/g, TAB).replace(/[\u0000-\u001f\u007f]/g, '\ufffd')
+}
+
+// 按行切分并清洗；末尾换行不产生空行，空文本为零行。
 function splitLines(text?: string | null): string[] {
   if (text === undefined || text === null || text === '') return []
   const lines = String(text).split('\n')
   if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
-  return lines
+  return lines.map(cleanLine)
 }
 
 // 行 diff：小输入走 LCS，未变的行作上下文；任一侧超过 400 行则全删再全加。
@@ -127,13 +139,29 @@ export function fitStart(text: string, size: number): string {
   return '…' + tail + ' '.repeat(Math.max(0, size - 1 - tailWidth))
 }
 
+// 按列宽放进 size 列：过长截尾并加 `…`；tab 先展开成空格。
+export function fitEnd(text: string, size: number): string {
+  const flat = text.replace(/\t/g, TAB)
+  if (textWidth(flat) <= size) return flat
+  let head = ''
+  let headWidth = 0
+  for (const ch of flat) {
+    const cw = textWidth(ch)
+    if (headWidth + cw + 1 > size) break
+    head += ch
+    headWidth += cw
+  }
+  return head + '…'
+}
+
 // 胶囊：看过的（序号 < index）、当前一个、没看的；最多 cap 个，超出的数量记在 overflow（画成 +N）。
-// 超过 cap 时可见的一段随当前步滑动（同 listWindow 居中），当前步始终画出。只在有回放（total > 0）时调用。
+// 超过 cap 时可见的一段随当前步滑动（同 listWindow 居中），当前步始终画出。total 为 0 时全为 0。
 export function pills(
   total: number,
   index: number,
   cap = 10,
 ): { seen: number; current: boolean; rest: number; overflow: number } {
+  if (total <= 0) return { seen: 0, current: false, rest: 0, overflow: 0 }
   const { start, end } = listWindow(total, index, cap)
   const seen = index - start
   return { seen, current: true, rest: end - start - 1 - seen, overflow: total - (end - start) }

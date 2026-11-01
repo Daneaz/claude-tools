@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { countChanges, diffLines, fileCount, listWindow, pills, relPath } from '../hooks/logic'
+import { countChanges, diffLines, fileCount, fitStart, listWindow, pills, relPath, textWidth } from '../hooks/logic'
 import type { Step } from '../hooks/logic'
 
 test('edit diff with context', async () => {
@@ -82,6 +82,16 @@ test('pills window follows current', async () => {
   expect(pills(14, 12)).toEqual({ seen: 8, current: true, rest: 1, overflow: 4 })
   expect(pills(14, 13)).toEqual({ seen: 9, current: true, rest: 0, overflow: 4 })
   expect(pills(14, 5)).toEqual({ seen: 5, current: true, rest: 4, overflow: 4 })
+})
+
+test('fitStart by column width', async () => {
+  expect(fitStart('a.ts', 6)).toBe('a.ts  ')
+  expect(fitStart('文档.md', 9)).toBe('文档.md  ')
+  expect(fitStart('src/long/name.ts', 8)).toBe('…name.ts')
+  // 全角字符放不下半个：补空格凑满列宽。
+  const cut = fitStart('目录/文档说明.md', 9)
+  expect(cut).toBe('…说明.md ')
+  expect(textWidth(cut)).toBe(9)
 })
 
 test('relPath', async () => {

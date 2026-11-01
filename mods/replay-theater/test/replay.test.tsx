@@ -2,6 +2,8 @@ import type { On, UiOpenResult } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
+import { textWidth } from '../hooks/logic'
+
 const BAND = {
   plugin: 'replay-theater',
   component: 'AbovePrompt',
@@ -189,7 +191,9 @@ test('hint button has no hotkey', async ($, on) => {
 
   const button = (await ui.find({ key: 'rt-open' })) as { props?: Record<string, unknown> } | undefined
   expect(button).toBeDefined()
-  expect(button?.props?.hotkey).toBeUndefined()
+  expect(button?.props).toBeDefined()
+  expect(button?.props?.plain).toBe(true)
+  expect('hotkey' in (button?.props ?? {})).toBe(false)
   await ui.unmount()
 })
 
@@ -233,6 +237,21 @@ test('steps navigate', async ($, on) => {
   expect(await textOf(ui, 'rt-title')).toContain('3/3')
   await ui.press({ key: 'prev' })
   expect(await textOf(ui, 'rt-title')).toContain('2/3')
+  await ui.unmount()
+})
+
+test('cjk file names align', async ($, on) => {
+  const { clock } = engine(on)
+  await startTurn($)
+  await edit($, '文档/说明.md')
+  await edit($, 'src/a.ts')
+  await $.turn.complete(DONE)
+  await replay($, clock)
+  const ui = await $.ui.mount(PANE)
+
+  const before = async (key: string) => textWidth(((await textOf(ui, key)) ?? '').split('Edit')[0] ?? '')
+  expect(await textOf(ui, 'rt-step-0')).toContain('文档/说明.md')
+  expect(await before('rt-step-0')).toBe(await before('rt-step-1'))
   await ui.unmount()
 })
 
@@ -412,14 +431,31 @@ test('band replay shrinks to maxRows', async ($, on) => {
   await startTurn($)
   for (let i = 0; i < 10; i++) await writeFile($, `f${i}.ts`, Array.from({ length: 20 }, (_, k) => `l${k}`).join('\n'))
   await $.turn.complete(DONE)
-  await replay($, clock)
-  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 12 } })
 
-  const keys = await boxKeys(ui)
-  expect(keys.filter(k => /^rt-diff-\d+$/.test(k)).length).toBe(5)
-  expect(keys.filter(k => /^rt-step-\d+$/.test(k)).length).toBe(3)
-  expect(await ui.find({ key: 'low' })).toBeDefined()
-  await ui.unmount()
+  // 回放 view 的行：标题、清单行与省略行、diff 行与「还有」行、按钮，加 3 个空行。
+  const viewRows = (keys: string[]) =>
+    keys.filter(k => /^rt-(title|step-\d+|more-(above|below)|diff-.+|buttons)$/.test(k)).length + 3
+  for (const maxRows of [12, 16, 24]) {
+    await replay($, clock)
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows } })
+    // 第 1 步（只有下省略行）与中间一步（上下都有省略行）都要放得下。
+    for (const at of [0, 5]) {
+      while (!(await textOf(ui, 'rt-title'))?.includes(`${at + 1}/10`)) await ui.press({ key: 'next' })
+      const keys = await boxKeys(ui)
+      expect(viewRows(keys)).toBeLessThanOrEqual(maxRows)
+      expect(keys.filter(k => /^rt-diff-\d+$/.test(k)).length).toBeGreaterThanOrEqual(3)
+      expect(keys.filter(k => /^rt-(step-\d+|more-(above|below))$/.test(k)).length).toBeGreaterThanOrEqual(3)
+      expect(keys).toContain(`rt-step-${at}`)
+      expect(keys).toContain('rt-diff-more')
+      expect(await ui.find({ key: 'low' })).toBeDefined()
+    }
+    if (maxRows === 24) {
+      // 宽裕时清单 7 步。
+      expect((await boxKeys(ui)).filter(k => /^rt-step-\d+$/.test(k)).length).toBe(7)
+    }
+    await ui.press({ key: 'close' })
+    await ui.unmount()
+  }
 })
 
 test('pane hides hint', async ($, on) => {

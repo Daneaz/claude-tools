@@ -103,6 +103,30 @@ export function listWindow(total: number, index: number, size = 7): { start: num
   return { start, end: start + size }
 }
 
+// 列宽：CJK 等全角字符算 2 列。
+export function textWidth(text: string): number {
+  let w = 0
+  for (const ch of text) w += /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/.test(ch) ? 2 : 1
+  return w
+}
+
+// 按列宽放进 size 列：过长从开头截断成 `…` + 结尾（留住文件名本身），不足补空格。
+export function fitStart(text: string, size: number): string {
+  const w = textWidth(text)
+  if (w <= size) return text + ' '.repeat(size - w)
+  const chars = [...text]
+  let tail = ''
+  let tailWidth = 0
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const ch = chars[i] as string
+    const cw = textWidth(ch)
+    if (1 + tailWidth + cw > size) break
+    tail = ch + tail
+    tailWidth += cw
+  }
+  return '…' + tail + ' '.repeat(Math.max(0, size - 1 - tailWidth))
+}
+
 // 胶囊：看过的（序号 < index）、当前一个、没看的；最多 cap 个，超出的数量记在 overflow（画成 +N）。
 // 超过 cap 时可见的一段随当前步滑动（同 listWindow 居中），当前步始终画出。只在有回放（total > 0）时调用。
 export function pills(

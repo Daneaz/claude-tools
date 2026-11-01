@@ -3,7 +3,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderInput } from 'claude-code'
 
-import { countChanges, diffLines, fileCount, listWindow, MAX_DIFF_LINES, pills, relPath } from './logic'
+import { countChanges, diffLines, fileCount, fitStart, listWindow, MAX_DIFF_LINES, pills, relPath, textWidth } from './logic'
 import type { Step } from './logic'
 
 const PANE_ID = 'replay-theater'
@@ -12,8 +12,11 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit'])
 const OPEN_DELAY = 200
 const PILL_CAP = 10
 const LIST_SIZE = 7
-// band 内展开时清单窗口最少行数。
+// band 内展开时：清单最少 3 行（含省略行）、diff 最少 3 行（另加「还有」行）。
 const MIN_LIST = 3
+const MIN_DIFF = 3
+// 回放视图里清单与 diff 之外的固定行：标题、三处空行、按钮。
+const FIXED_ROWS = 5
 const PANE_COLUMNS = 72
 
 // 紫与 quick-tools 的模型紫一致；其余用 theme key，跟着终端主题走。
@@ -21,9 +24,9 @@ const PURPLE = '#c792ff'
 const GREEN = 'success'
 const RED = 'error'
 const DARK = 'subtle'
-// diff 行底色：删暗红、加暗绿。
-const DEL_BG = '#3a1f22'
-const ADD_BG = '#1c3326'
+// diff 行底色：用 engine 的 diff theme key，浅色终端下也跟着主题走。
+const DEL_BG = 'diffRemovedDimmed'
+const ADD_BG = 'diffAddedDimmed'
 // 「下一步」按钮紫底上的深色字（同 quick-tools）。
 const INK = '#15161a'
 
@@ -114,18 +117,13 @@ async function openReplay($: EngineInterface): Promise<boolean> {
   return true
 }
 
-// 字符宽度：CJK 等全角算 2 列。
-function width(text: string): number {
-  let w = 0
-  for (const ch of text) w += /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/.test(ch) ? 2 : 1
-  return w
-}
-
-// 文件名：过长从开头截断（留住文件名本身），不足补空格。
-function fitStart(text: string, size: number): string {
-  const chars = [...text]
-  if (chars.length <= size) return text + ' '.repeat(size - chars.length)
-  return '…' + chars.slice(chars.length - size + 1).join('')
+// 清单窗口：最多 size 步、总行数（含上下省略行）不超过 budget；当前步始终在内。
+function fitWindow(total: number, k: number, size: number, budget: number) {
+  for (let s = Math.min(size, total); s > 1; s--) {
+    const win = listWindow(total, k, s)
+    if (s + (win.start > 0 ? 1 : 0) + (win.end < total ? 1 : 0) <= budget) return win
+  }
+  return listWindow(total, k, 1)
 }
 
 function fitEnd(text: string, size: number): string {
@@ -133,7 +131,7 @@ function fitEnd(text: string, size: number): string {
   return chars.length <= size ? text : chars.slice(0, Math.max(0, size - 1)).join('') + '…'
 }
 
-const pad = (text: string, size: number) => text + ' '.repeat(Math.max(0, size - width(text)))
+const pad = (text: string, size: number) => text + ' '.repeat(Math.max(0, size - textWidth(text)))
 
 // 回放视图：标题行、步骤清单、当前步 diff、按钮。画在 Pane 里，或窄终端下画在 band 里。
 async function replayView($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pane'>, isBand: boolean, columns: number, maxRows: number) {
@@ -145,9 +143,15 @@ async function replayView($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pa
     return <Text dimColor>没有可回放的编辑</Text>
   }
 
-  // band 内按 maxRows 收缩（diff 用原版公式），清单窗口可缩到 3。
-  const maxDiff = isBand ? Math.max(3, Math.min(MAX_DIFF_LINES, maxRows - 7)) : MAX_DIFF_LINES
-  const listSize = isBand ? Math.max(MIN_LIST, Math.min(LIST_SIZE, maxRows - 7 - maxDiff)) : LIST_SIZE
+  // band 内按 maxRows 收缩：先扣固定行，清单（含省略行，最少 3 行）先取，留够 diff 的 3 行与「还有」行；
+  // 剩下的给 diff（含「还有」行）。pane 里清单 7 步、diff 12 行。
+  const win = isBand
+    ? fitWindow(total, k, LIST_SIZE, Math.max(MIN_LIST, maxRows - FIXED_ROWS - MIN_DIFF - 1))
+    : listWindow(total, k, LIST_SIZE)
+  const listRows = win.end - win.start + (win.start > 0 ? 1 : 0) + (win.end < total ? 1 : 0)
+  const diffRows = isBand ? Math.max(MIN_DIFF + 1, maxRows - FIXED_ROWS - listRows) : MAX_DIFF_LINES + 1
+  // diff 放得下就全画；放不下留一行给「还有 N 行」。
+  const maxDiff = Math.min(MAX_DIFF_LINES, step.diff.length <= diffRows ? diffRows : diffRows - 1)
 
   // 标题行：胶囊看过的绿、当前紫、没看的暗；超出封顶的数量 dim `+N`。
   const p = pills(total, k, PILL_CAP)
@@ -167,11 +171,10 @@ async function replayView($: EngineInterface, e: RenderInput<'AbovePrompt' | 'Pa
 
   // 清单列：文件名（上限 40% 宽）、工具名、+N −N、note；各列竖向对齐。
   const counts = replay.map(s => countChanges(s.diff))
-  const nameWidth = Math.max(4, Math.min(Math.max(...replay.map(s => [...s.file].length)), Math.floor(columns * 0.4)))
+  const nameWidth = Math.max(4, Math.min(Math.max(...replay.map(s => textWidth(s.file))), Math.floor(columns * 0.4)))
   const toolWidth = Math.max(...replay.map(s => s.tool.length))
   const addWidth = Math.max(...counts.map(c => `+${c.add}`.length))
   const delWidth = Math.max(...counts.map(c => `−${c.del}`.length))
-  const win = listWindow(total, k, listSize)
 
   const row = (s: Step, i: number) => {
     const c = counts[i] ?? { add: 0, del: 0 }
@@ -380,7 +383,8 @@ export const register: Register = on => {
 
   // 用户关了 pane（Esc 等）：同步开关。
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE_ID) {
+    // 同原版：id 与 requestId 都认。
+    if (e.id === PANE_ID || (e as { requestId?: string }).requestId === PANE_ID) {
       await update($, isOpen, () => false)
       await update($, inBand, () => false)
     }

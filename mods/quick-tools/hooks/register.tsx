@@ -142,8 +142,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // AbovePrompt 只在 terminal 与 desktop app 上触发；两边的 Box/Text/Button 同一套 props，画同一棵树。
-    if ((e.surface !== 'terminal' && e.surface !== 'desktop') || e.props.hasSurvey) {
+    if (e.surface !== 'terminal' || e.props.hasSurvey) {
       return next(e)
     }
 

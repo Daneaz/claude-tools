@@ -1,0 +1,7 @@
+{
+  "name": "blast-radius",
+  "version": "0.1.0",
+  "author": { "name": "Daneaz" },
+  "description": "Holds risky shell commands (rm -rf, git reset --hard, git clean, force push, migrations) and shows what they would change before they run.",
+  "types": "./types/index.d.ts"
+}

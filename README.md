@@ -142,6 +142,105 @@ claude plugin marketplace add <本仓库绝对路径>
 claude plugin install task-progress@claude-tools
 ```
 
+### blast-radius
+
+改编自 claude-code-playground 的 [Blast Radius](https://github.com/anthropics/claude-code-playground/tree/main/claude-code/mods/blast-radius)（Apache-2.0），换了配色与中文文案。Claude 用 Bash 跑危险命令前先拦下，量出会影响什么，等你选「执行」或「取消」：
+
+| 命令 | 显示 |
+| --- | --- |
+| `rm -r` / `rm -f` / `rm -rf` | 会删除的文件、数量与大小 |
+| `git reset --hard`、`git checkout -- .`、`git restore .` | 会丢掉改动的文件 |
+| `git clean` | 会清掉的未跟踪路径 |
+| `git push --force` / `-f` / `--force-with-lease` / `+ref` | 远端上会被丢掉的 commit |
+| `manage.py migrate`、`db:migrate`、`alembic upgrade`、`prisma migrate` | 待执行的 migration |
+
+终端够宽（约 144 列）时开在右侧 pane：
+
+```
+▎⚠ 拦截  rm -rf build
+▎
+▎▰▰▰▰▰▰▰▰▰  删除 9 个文件  1.1 MB
+▎
+▎  − build/assets/logo.png
+▎  − build/index.html
+▎    … 还有 7 个
+▎
+▎[1 执行]  [2 取消]   Claude 在等你决定
+```
+
+窄终端画在输入框上方的 band，按钮排在第 2 行，保证不被其他 mod 挤出视野：
+
+```
+▎⚠ 拦截  git reset --hard   丢弃 2 个文件的未提交改动  +2 −1
+▎[1 执行]  [2 取消]   未提交的改动无法恢复
+▎  A  NOTES.md
+▎  M  src/math.js
+```
+
+- 按 `1` 执行、`2` 取消，也可以点按钮；焦点默认在「取消」，直接回车不会执行。
+- 10 分钟没人回、按 Esc 中断、手动关掉 pane、拦截中出错，一律拒绝，命令不会跑。
+- 一次只拦一个，第二个危险调用排队。
+
+已知局限：
+
+- 只读命令文本，不完整解析 shell：`bash -c "…"`、`xargs rm`、`find -delete`、`timeout 5 rm` 等包装拦不到。这是安全网，不是权限系统，硬性禁止请用 permission rules。
+- band 里输入框为空时按 `1` 就会执行，正好要输入以「1」开头的消息时注意。
+- band 被折叠（ctrl+x ctrl+a）时看不到拦截，只能等超时拒绝。
+- 测量 migration 时会跑项目自己的 status 命令（会加载项目代码）。
+
+安装：
+
+```
+/plugin install blast-radius --marketplace Daneaz/claude-tools
+```
+
+或本机：`claude plugin install blast-radius@claude-tools`（先按上文添加 marketplace）。
+
+### replay-theater
+
+改编自 claude-code-playground 的 [Replay Theater](https://github.com/anthropics/claude-code-playground/tree/main/claude-code/mods/replay-theater)（Apache-2.0），换了版式、配色与中文文案。记下一轮里 Claude 的每次文件编辑（Edit / Write / MultiEdit），轮次结束后在 band 上提示，打开后逐步看每次编辑的 diff。只观察，不拦截、不改动编辑。
+
+轮次结束后的提示：
+
+```
+▶ 回放  ▰▰▰▰▰  5 处编辑  3 个文件 · 点击或 /replay
+```
+
+打开后：
+
+```
+▶ 回放  ▰▰▱▱▱  2/5  3 个文件
+
+  ✓  greet.js    Edit  +1 −1
+  ›  main.js     Edit  +1 −1
+     main.js     Edit  +1 −1
+     README.md   Edit  +1 −1
+     greet.js    Edit  +1 −1
+
+     − import { greet, greetAll } from "./greet"
+     + import { welcome, greetAll } from "./greet"
+
+[‹ p]  [n ›]  [c 关闭]
+```
+
+- 打开：`/replay`，或点提示（提示不设单键热键，免得吃掉你输入的第一个字母）。
+- pane 里 `n` 下一步、`p` 上一步、`c` 或 Esc 关闭。
+- 回放一直保留到下一轮有编辑的轮次；没有编辑的轮次不替换。
+
+已知局限：
+
+- Edit 的 diff 只在 `old_string` / `new_string` 之间，不显示文件行号；每步最多 12 行。
+- 被拒或失败的编辑也会记录；subagent 的编辑并入主轮次。
+- 只存在内存里，重启 Claude Code 或重载插件后丢失。
+
+安装：
+
+```
+/plugin install replay-theater --marketplace Daneaz/claude-tools
+```
+
+或本机：`claude plugin install replay-theater@claude-tools`。
+
 ## skills
 
 待添加。

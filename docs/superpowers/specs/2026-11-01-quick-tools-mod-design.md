@@ -12,12 +12,13 @@
 - 点击按钮，在按钮上方展开一个靠右对齐的小面板（band 自身展开，不是 `Pane`）。
 - 面板里一键切换：4 个模型、5 档 effort、ultracode 开关。
 - 全程鼠标可用；键盘可用是附带的，不是目标。
+- 同时支持 terminal 与 Claude 桌面 app（desktop surface），画同一棵树（用户 2026-11-02 要求：所有 mod 都要支持桌面 app）。
 
 ## 非目标
 
 - 「未来新 mod 的开关」：本次不做，以后单独设计。
 - 不用 `$.ui.open` 的 `Pane`（它的位置由 engine 决定，没法出现在按钮上方）。
-- 不支持 terminal 以外的 surface（desktop / vscode / mobile 可以什么都不画，直接 `next(e)`）。
+- vscode / mobile 不画，直接 `next(e)`（engine 只在 terminal 与 desktop 上触发 `AbovePrompt`）。
 
 ## 反目标（做到了也算失败）
 

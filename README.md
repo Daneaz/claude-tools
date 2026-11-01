@@ -125,7 +125,7 @@ claude plugin install quick-tools@claude-tools
 
 ### task-progress
 
-band 上常驻一行当前 session 计划（TodoWrite / Task 工具）的进度，点开可逐条查看每个任务的状态；与 quick-tools 同时安装时，进度行在上、quick-tools 按钮在下。
+当前 session 有计划（TodoWrite / Task 工具）时，band 上常驻一行进度，点开可逐条查看每个任务的状态；没有计划时不显示。与 quick-tools 同时安装时，进度行在上、quick-tools 按钮在下。
 
 安装方式与 quick-tools 相同（marketplace 名同为 `claude-tools`，已添加过就不用再加）：
 

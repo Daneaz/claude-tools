@@ -146,6 +146,7 @@ export const register: Register = on => {
       // 撑满 band 宽度，按钮才会落在最右侧（不设宽度时 Box 只有内容那么宽）。
       <Box key="root" width={e.props.bodyColumns} flexDirection="column" alignItems="flex-end">
         {open && (
+          <Box key="panel-row" justifyContent="flex-end">
           <Box borderStyle="round" flexDirection="column" paddingX={1}>
             <Box flexWrap="wrap">
               {MODELS.map(m =>
@@ -183,9 +184,12 @@ export const register: Register = on => {
               )}
             </Box>
           </Box>
+          </Box>
         )}
-        {/* plain：不画 `[ ]`。 */}
-        <Button key="toggle" plain label={buttonLabel(s, open)} onPress={() => update($, isOpen, o => !o)} />
+        {/* terminal 会把 Button 撑满整行，单靠外层 alignItems 无法靠右；包一层横向 Box 推到右边。plain：不画 `[ ]`。 */}
+        <Box key="toggle-row" justifyContent="flex-end">
+          <Button key="toggle" plain label={buttonLabel(s, open)} onPress={() => update($, isOpen, o => !o)} />
+        </Box>
       </Box>
     )
   })

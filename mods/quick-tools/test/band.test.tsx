@@ -382,3 +382,17 @@ test('after a model switch the new model\'s saved effort shows at once', async (
   expect(await toggleText(ui)).toBe('⚡ Haiku · high')
   await ui.unmount()
 })
+
+test('button and panel each sit in a right-justified row', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await $.ui.mount(BAND)
+  await ui.press({ key: 'toggle' })
+  for (const key of ['toggle-row', 'panel-row']) {
+    const row = await ui.find({ key })
+    expect(row?.props.flexDirection ?? 'row').toBe('row')
+    expect(row?.props.justifyContent).toBe('flex-end')
+  }
+  expect(await ui.find({ key: 'toggle' })).toBeDefined()
+  await ui.unmount()
+})

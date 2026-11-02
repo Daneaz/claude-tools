@@ -2,23 +2,17 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import {
-  applyTaskCreate,
-  applyTaskUpdate,
-  applyTodoWrite,
   avatarFor,
   endAgent,
   endStateOf,
-  etaOf,
   fit,
   formatElapsed,
-  formatEta,
-  formatEtaLong,
   ordered,
   overviewOf,
-  progressOf,
   recordTool,
   resumeAgent,
   spawnAgent,
+  sweep,
   textWidth,
   truncate,
 } from './logic'
@@ -27,26 +21,28 @@ import type { Agent, AgentState } from './logic'
 const PANE = 'subagent-view'
 const TITLE = 'SubAgent View'
 
-// 颜色都用 theme key，跟着终端主题走（与 task-progress 同一套，加 warning / error）。
+// 颜色都用 theme key，跟着终端主题走（与 task-progress 同一套，加 error）。
 const GREEN = 'success'
 const BLUE = 'suggestion'
 const DARK = 'subtle'
-const YELLOW = 'warning'
 const RED = 'error'
 
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 // 名称列：avatar 2 列 + 空格 + 短名称 10 列 + 空格。
 const NAME = 10
 const HEAD = 2 + 1 + NAME + 1
-// 第 2、3 行的缩进。
+// 第 2 行的缩进。
 const INDENT = '   '
+// 工作条格数；可用宽度小于 MIN_BAR_W 时省掉工作条。
+const BAR = 10
+const MIN_BAR_W = 24
 // 计时器每走这么多帧，按 $.agent.list() 自愈一次。
 const HEAL_EVERY = 30
 // $.agent.list() 里算已结束的状态。
 const ENDED: AgentState[] = ['completed', 'failed', 'killed']
 
 // 改了 Agent 的字段就换 shape，旧版本存下的值读作缺省。
-const agents = atom({ plugin: 'subagent-view', key: 'agents' } as const, [] as Agent[], { shape: 'agents-1' })
+const agents = atom({ plugin: 'subagent-view', key: 'agents' } as const, [] as Agent[], { shape: 'agents-2' })
 const isOpen = atom({ plugin: 'subagent-view', key: 'isOpen' } as const, false)
 const frame = atom({ plugin: 'subagent-view', key: 'frame' } as const, 0)
 
@@ -189,43 +185,12 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
-    const { agentId } = e
-    if (agentId === undefined || !(await isTracked($, agentId))) return next(e)
-    const r = await next(e)
-    if (r.deny === undefined && !r.isError) {
-      const todos = r.result.newTodos
-      await update($, agents, list => applyTodoWrite(list, agentId, todos))
-    }
-    return r
-  })
-
-  on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
-    const { agentId } = e
-    if (agentId === undefined || !(await isTracked($, agentId))) return next(e)
-    const r = await next(e)
-    if (r.deny === undefined && !r.isError) {
-      const { id } = r.result.task
-      await update($, agents, list => applyTaskCreate(list, agentId, id, e.subject, e.activeForm))
-    }
-    return r
-  })
-
-  // 任务表 session 共享：update 落在持有该 taskId 的 agent 上，不看是谁调的。
-  on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
-    const r = await next(e)
-    if (r.deny === undefined && !r.isError && r.result.success !== false) {
-      await update($, agents, list => applyTaskUpdate(list, e))
-    }
-    return r
-  })
-
-  // 其余工具：记下最近一次，供「没有计划」那行用（recordTool 自己跳过计划类工具）。
+  // 被跟踪的 subagent 的每次工具调用：记下最近一次并计数；被 deny 的不计，报错的照样计。
   on('tool.call', async ($, e, next) => {
     const { agentId } = e
     if (agentId === undefined || !(await isTracked($, agentId))) return next(e)
     const r = await next(e)
-    if (r.deny === undefined && !r.isError) {
+    if (r.deny === undefined) {
       const input = e as unknown as Record<string, unknown>
       await update($, agents, list => recordTool(list, agentId, e.tool, input))
     }
@@ -246,7 +211,8 @@ export const register: Register = on => {
     const W = e.props.bodyColumns
     const list = await read($, agents)
     const now = await $.clock.now()
-    const spin = SPINNER[(await read($, frame)) % SPINNER.length] ?? SPINNER[0]
+    const tick = await read($, frame)
+    const spin = SPINNER[tick % SPINNER.length] ?? SPINNER[0]
 
     // 一行 = 一个 Box；right 靠右对齐到 W 列，left 的最后一段（可截断的说明）让出位置。
     const pad = (used: number, right: string) => ' '.repeat(Math.max(1, W - used - textWidth(right)))
@@ -262,7 +228,7 @@ export const register: Register = on => {
       )
     }
 
-    const o = overviewOf(list, now)
+    const o = overviewOf(list)
     const { running, ended } = ordered(list)
 
     // 总览第 1 行：标题 + 各项计数（为 0 的不显示），计数靠右。
@@ -279,18 +245,6 @@ export const register: Register = on => {
         {counts.map((c, i) => (
           <Text mono color={c.color}>{(i > 0 ? '  ' : '') + c.text}</Text>
         ))}
-      </Box>
-    )
-
-    // 总览第 2 行：有在跑的才显示；没有计划 / 都在估算中时对应部分不显示。
-    const hasPlan = running.some(a => a.steps.length > 0)
-    const summary = [
-      hasPlan && `合计剩余 ${o.remainingSteps} 步`,
-      o.etaMs !== null && `剩余时间${formatEtaLong(o.etaMs)}`,
-    ].filter(s => s !== false)
-    const summaryRow = summary.length > 0 && (
-      <Box key="row-summary">
-        <Text mono dimColor>{truncate(summary.join('   '), W)}</Text>
       </Box>
     )
 
@@ -325,64 +279,49 @@ export const register: Register = on => {
         </Box>
       )
 
-      const p = progressOf(a)
       const rows = [index > 0 && <Box key={`row-${id}-gap`}><Text mono> </Text></Box>, line1]
-      if (p.total === 0) {
-        const recent = a.lastTool && `   最近：${a.lastTool.tool}${a.lastTool.hint ? ` ${a.lastTool.hint}` : ''}`
+
+      // 第 2 行：工作条（窄时省掉）+ `› 工具 参数` + 靠右的调用次数；没调过工具时只写 `› 启动中`。
+      const hasBar = W >= MIN_BAR_W
+      const bar = hasBar
+        ? [
+            ...sweep(tick, BAR).map(lit => <Text mono color={lit ? BLUE : DARK}>{lit ? '▰' : '▱'}</Text>),
+            <Text mono>{'  '}</Text>,
+          ]
+        : []
+      const lead = INDENT.length + (hasBar ? BAR + 2 : 0)
+      if (a.lastTool === undefined) {
         rows.push(
           <Box key={`row-${id}-2`}>
-            <Text mono dimColor>{truncate(`${INDENT}没有计划${recent || ''}`, W)}</Text>
+            <Text mono>{INDENT}</Text>
+            {bar}
+            <Text mono dimColor>{truncate('› 启动中', Math.max(0, W - lead))}</Text>
           </Box>,
         )
         return rows
       }
-
-      // 胶囊上限 W - 24 格，且不挤掉 a/b、剩余步数和右侧预计时间；超出时截断并以 `…` 收尾。
-      const eta = etaOf(a, now)
-      const etaText = typeof eta === 'number' ? `≈ ${formatEta(eta)}` : '估算中'
-      const count = `${p.done}/${p.total}`
-      const left = `  剩 ${p.remaining} 步`
-      const fixed = INDENT.length + 2 + count.length + textWidth(left) + 1 + textWidth(etaText)
-      const cap = Math.max(1, Math.min(W - 24, W - fixed))
-      const shown = p.total > cap ? a.steps.slice(0, cap - 1) : a.steps
-      const more = p.total > cap ? '…' : ''
-      const used = INDENT.length + shown.length + more.length + 2 + count.length + textWidth(left)
+      const calls = `${a.toolCalls} 次工具`
+      const activity = truncate(
+        `› ${a.lastTool.tool}${a.lastTool.hint ? ` ${a.lastTool.hint}` : ''}`,
+        Math.max(0, W - lead - 1 - textWidth(calls)),
+      )
       rows.push(
         <Box key={`row-${id}-2`}>
           <Text mono>{INDENT}</Text>
-          {shown.map(s =>
-            s.status === 'pending' ? (
-              <Text mono color={DARK}>▱</Text>
-            ) : (
-              <Text mono color={s.status === 'completed' ? GREEN : BLUE}>▰</Text>
-            ),
-          )}
-          <Text mono dimColor>{more}</Text>
-          <Text mono color={BLUE}>{`  ${count}`}</Text>
-          <Text mono dimColor>{left}</Text>
-          <Text mono>{pad(used, etaText)}</Text>
-          {typeof eta === 'number' ? <Text mono color={YELLOW}>{etaText}</Text> : <Text mono dimColor>{etaText}</Text>}
+          {bar}
+          <Text mono color={BLUE}>{activity}</Text>
+          <Text mono>{pad(lead + textWidth(activity), calls)}</Text>
+          <Text mono dimColor>{calls}</Text>
         </Box>,
       )
-      if (p.current) {
-        const text = truncate(`${INDENT}› ${p.current.text}`, W)
-        rows.push(
-          <Box key={`row-${id}-3`}>
-            {p.current.isActive ? <Text mono color={BLUE}>{text}</Text> : <Text mono dimColor>{text}</Text>}
-          </Box>,
-        )
-      }
       return rows
     }
 
     // 已结束一行：✓ / ✗ + 头部（dim）+ 结果 + 总用时（靠右）。
     const endedRow = (a: Agent) => {
-      const p = progressOf(a)
       const ok = a.state === 'completed'
       const mark = ok ? '✓' : '✗'
-      const result = ok
-        ? p.total > 0 ? `${p.done}/${p.total}` : ''
-        : p.total > 0 ? `停在 ${p.done}/${p.total}` : a.state === 'killed' ? '已停止' : '失败'
+      const result = ok ? (a.toolCalls > 0 ? `${a.toolCalls} 次` : '') : a.state === 'killed' ? '已停止' : '失败'
       const elapsed = formatElapsed((a.endedAt ?? now) - a.startedAt)
       const tail = result ? `  ${result}` : ''
       const room = W - 2 - HEAD - textWidth(tail) - 2 - textWidth(elapsed)
@@ -391,7 +330,7 @@ export const register: Register = on => {
         <Box key={`row-${a.agentId}-ended`}>
           <Text mono color={ok ? GREEN : RED}>{`${mark} `}</Text>
           {head(a, room, true)}
-          <Text mono color={ok ? GREEN : RED}>{tail}</Text>
+          {ok ? <Text mono dimColor>{tail}</Text> : <Text mono color={RED}>{tail}</Text>}
           <Text mono>{pad(2 + HEAD + textWidth(desc) + textWidth(tail), elapsed)}</Text>
           <Text mono dimColor>{elapsed}</Text>
         </Box>
@@ -401,7 +340,6 @@ export const register: Register = on => {
     return (
       <Box key="root" flexDirection="column">
         {titleRow}
-        {summaryRow}
         {divider('row-divider-1')}
         {running.flatMap(runningBlock)}
         {ended.length > 0 && running.length > 0 && divider('row-divider-2')}

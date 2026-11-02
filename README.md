@@ -146,18 +146,26 @@ claude plugin install task-progress@claude-tools
 
 ### subagent-view
 
-对话右侧的一个 pane，显示主会话派出的每个 subagent：顶部总览在跑 / 完成 / 失败数、合计剩余步数和预计剩余时间；每个在跑的 subagent 显示任务说明、已跑时长、它自己计划的进度（`3/7`、剩几步、预计剩余）和当前在做的那一步；结束的缩成一行放到底部「已结束」下。用 `/subagents` 开关 pane（默认关闭）；与 quick-tools 同时安装时，quick-tools 面板里的 ` ◧ SubAgents ` 开关效果相同（quick-tools 只在终端显示）。pane 支持终端与 Claude 桌面 app（VS Code 扩展里不画），桌面 app 里用 `/subagents` 开关。
+对话右侧的一个 pane，显示主会话派出的每个 subagent：顶部总览在跑 / 完成 / 失败数；每个在跑的 subagent 显示任务说明、已跑时长、一条来回弹的工作条、此刻在干什么（最近一次工具调用）和累计调了几次工具；结束的缩成一行放到底部「已结束」下。用 `/subagents` 开关 pane（默认关闭）；与 quick-tools 同时安装时，quick-tools 面板里的 ` ◧ SubAgents ` 开关效果相同（quick-tools 只在终端显示）。pane 支持终端与 Claude 桌面 app（VS Code 扩展里不画），桌面 app 里用 `/subagents` 开关。
 
 ```
 SubAgent View          3 在跑  1 完成  1 失败
-合计剩余 12 步   剩余时间约 6 分钟
 ──────────────────────────────────────────────
 🎨 Designer  出登录页设计稿         ⠋ 4m12s
-   ▰▰▰▱▱▱▱  3/7  剩 4 步             ≈ 5m
-   › 正在画表单状态
+   ▱▱▰▰▰▱▱▱▱▱  › Write login.html  18 次工具
+
+🧰 General   实现登录接口           ⠋ 1m03s
+   ▱▱▱▱▱▰▰▰▱▱  › Bash 跑单元测试    7 次工具
+
+🔭 Explore   搜索调用点             ⠋ 0m02s
+   ▰▰▰▱▱▱▱▱▱▱  › 启动中
+──────────────────────────────────────────────
+已结束
+✓ 🎬 Motion   打击感时间轴   12 次   2m30s
+✗ 🔍 Reviewer 审查 spec      已停止   1m10s
 ```
 
-注意：进度只按 subagent 自己列的计划步数算，预计时间只是估算；没有计划的 subagent 只显示最近一次工具调用。
+注意：工作条只表示「在干活」，不代表完成比例；subagent 拿不到计划工具，所以不显示剩几步或预计剩余时间。被拒的工具调用不计入次数。
 
 安装方式与 quick-tools 相同（marketplace 名同为 `claude-tools`，已添加过就不用再加）：
 

@@ -1,9 +1,9 @@
-// 纯逻辑：维护每个 subagent 的状态与计划，算进度、预计剩余时间、总览，以及按列宽截断。
+// 纯逻辑：维护每个 subagent 的状态、最近工具与调用次数，算总览、工作条，以及按列宽截断。
 
-import type { Agent, AgentState, Step, StepStatus } from '../types'
+import type { Agent, AgentState } from '../types'
 
 // 类型写在 types/index.d.ts（contract 须自包含），这里转出，供 register 与测试使用。
-export type { Agent, AgentState, Step, StepStatus }
+export type { Agent, AgentState }
 
 type EndState = Exclude<AgentState, 'running'>
 
@@ -52,10 +52,6 @@ function updateAgent(list: Agent[], agentId: string, fn: (a: Agent) => Agent): A
   return list.map((a, i) => (i === index ? fn(a) : a))
 }
 
-function doneCount(steps: Step[]): number {
-  return steps.filter(s => s.status === 'completed').length
-}
-
 export function spawnAgent(
   list: Agent[],
   a: { agentId: string; type: string; description: string; now: number },
@@ -69,20 +65,14 @@ export function spawnAgent(
       description: a.description,
       state: 'running',
       startedAt: a.now,
-      steps: [],
-      doneAtStart: 0,
+      toolCalls: 0,
     },
   ]
 }
 
-// 叫醒：重新计时，ETA 只看叫醒之后完成的步数。
+// 叫醒：重新计时，调用次数接着累加。
 export function resumeAgent(list: Agent[], agentId: string, now: number): Agent[] {
-  return updateAgent(list, agentId, ({ endedAt: _, ...a }) => ({
-    ...a,
-    state: 'running',
-    startedAt: now,
-    doneAtStart: doneCount(a.steps),
-  }))
+  return updateAgent(list, agentId, ({ endedAt: _, ...a }) => ({ ...a, state: 'running', startedAt: now }))
 }
 
 export function endAgent(list: Agent[], agentId: string, state: EndState, now: number): Agent[] {
@@ -97,66 +87,11 @@ export function endStateOf(reason: 'answer' | 'aborted' | 'refusal' | 'error'): 
   return 'failed'
 }
 
-// TodoWrite 每次给整张表：整表替换；id 带 `todo-` 前缀，不会和 TaskCreate 的 id 撞上。
-export function applyTodoWrite(
-  list: Agent[],
-  agentId: string,
-  todos: { content: string; status: StepStatus; activeForm: string }[],
-): Agent[] {
-  return updateAgent(list, agentId, a => ({
-    ...a,
-    steps: todos.map((t, i) => ({
-      id: `todo-${i}`,
-      title: t.content,
-      activeForm: t.activeForm,
-      status: t.status,
-    })),
-  }))
-}
-
-export function applyTaskCreate(
-  list: Agent[],
-  agentId: string,
-  id: string,
-  subject: string,
-  activeForm?: string,
-): Agent[] {
-  const step: Step = { id, title: subject, status: 'pending' }
-  if (activeForm !== undefined) step.activeForm = activeForm
-  return updateAgent(list, agentId, a => ({ ...a, steps: [...a.steps, step] }))
-}
-
-// 任务列表是共享的：update 落在持有该 taskId 的 agent 上，不看是谁调的。
-export function applyTaskUpdate(
-  list: Agent[],
-  input: { taskId: string; subject?: string; activeForm?: string; status?: StepStatus | 'deleted' },
-): Agent[] {
-  const owner = list.find(a => a.steps.some(s => s.id === input.taskId))
-  if (!owner) return list
-  const { status } = input
-  return updateAgent(list, owner.agentId, a => {
-    if (status === 'deleted') return { ...a, steps: a.steps.filter(s => s.id !== input.taskId) }
-    return {
-      ...a,
-      steps: a.steps.map(s =>
-        s.id !== input.taskId
-          ? s
-          : {
-              ...s,
-              ...(input.subject !== undefined ? { title: input.subject } : {}),
-              ...(input.activeForm !== undefined ? { activeForm: input.activeForm } : {}),
-              ...(status !== undefined ? { status } : {}),
-            },
-      ),
-    }
-  })
-}
-
 function str(v: unknown): string {
   return typeof v === 'string' ? v : ''
 }
 
-// 取这次调用最能说明意图的字段，供「没有计划」时的「最近：」一行。
+// 取这次调用最能说明意图的字段，供第 2 行「› 工具 参数」用。
 export function toolHint(tool: string, input: Record<string, unknown>): string {
   switch (tool) {
     case 'Grep':
@@ -178,62 +113,25 @@ export function toolHint(tool: string, input: Record<string, unknown>): string {
   }
 }
 
-// 计划类工具本身就体现在进度里，不算「最近」。
-const PLAN_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet'])
-
+// 记下最近一次工具并计数；计划类工具也是普通工具。
 export function recordTool(
   list: Agent[],
   agentId: string,
   tool: string,
   input: Record<string, unknown>,
 ): Agent[] {
-  if (PLAN_TOOLS.has(tool)) return list
-  return updateAgent(list, agentId, a => ({ ...a, lastTool: { tool, hint: toolHint(tool, input) } }))
+  return updateAgent(list, agentId, a => ({
+    ...a,
+    toolCalls: a.toolCalls + 1,
+    lastTool: { tool, hint: toolHint(tool, input) },
+  }))
 }
 
-export function progressOf(a: Agent): {
-  total: number
-  done: number
-  remaining: number
-  current?: { text: string; isActive: boolean }
-} {
-  const total = a.steps.length
-  const done = doneCount(a.steps)
-  const result: ReturnType<typeof progressOf> = { total, done, remaining: total - done }
-  const active = a.steps.find(s => s.status === 'in_progress')
-  const next = a.steps.find(s => s.status === 'pending')
-  if (active) result.current = { text: active.activeForm ?? active.title, isActive: true }
-  else if (next) result.current = { text: next.title, isActive: false }
-  return result
-}
-
-// 按本次开跑以来的平均每步耗时外推剩余时间（ms）。
-export function etaOf(a: Agent, now: number): number | 'estimating' | null {
-  const { total, done, remaining } = progressOf(a)
-  if (total === 0) return null
-  const doneSince = done - a.doneAtStart
-  if (doneSince <= 0) return 'estimating'
-  return ((now - a.startedAt) / doneSince) * remaining
-}
-
-export function overviewOf(
-  list: Agent[],
-  now: number,
-): { running: number; completed: number; failed: number; remainingSteps: number; etaMs: number | null } {
-  const running = list.filter(a => a.state === 'running')
-  let remainingSteps = 0
-  let etaMs: number | null = null
-  for (const a of running) {
-    remainingSteps += progressOf(a).remaining
-    const eta = etaOf(a, now)
-    if (typeof eta === 'number') etaMs = Math.max(etaMs ?? 0, eta)
-  }
+export function overviewOf(list: Agent[]): { running: number; completed: number; failed: number } {
   return {
-    running: running.length,
+    running: list.filter(a => a.state === 'running').length,
     completed: list.filter(a => a.state === 'completed').length,
     failed: list.filter(a => a.state === 'failed' || a.state === 'killed').length,
-    remainingSteps,
-    etaMs,
   }
 }
 
@@ -245,13 +143,13 @@ export function formatElapsed(ms: number): string {
   return `${Math.floor(totalSec / 3600)}h${pad2(Math.floor((totalSec % 3600) / 60))}m`
 }
 
-export function formatEta(ms: number): string {
-  return ms < 60000 ? '<1m' : `${Math.round(ms / 60000)}m`
-}
-
-// 总览用：拼成「剩余时间约 6 分钟」或「剩余时间不到 1 分钟」。
-export function formatEtaLong(ms: number): string {
-  return ms < 60000 ? '不到 1 分钟' : `约 ${Math.round(ms / 60000)} 分钟`
+// 亮光在 width 格里来回弹：起点 0→(width-len)→0，周期 2*(width-len) 帧。（与 task-progress 同一算法，各 mod 独立打包）
+export function sweep(frame: number, width = 10, len = 3): boolean[] {
+  const span = width - len
+  const period = span * 2
+  const phase = period > 0 ? ((frame % period) + period) % period : 0
+  const start = phase <= span ? phase : period - phase
+  return Array.from({ length: width }, (_, i) => i >= start && i < start + len)
 }
 
 export function ordered(list: Agent[]): { running: Agent[]; ended: Agent[] } {

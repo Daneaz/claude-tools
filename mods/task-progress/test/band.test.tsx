@@ -35,8 +35,9 @@ function todos(...statuses: Status[]): Todo[] {
 // 充当 engine：计划工具按工具名回结果，TaskCreate 依次发 id 1、2、…；
 // TaskUpdate 的回复与 agent.list 的回复可由测试换掉（默认：派过的都在运行）；AbovePrompt 默认是 engine 自己（什么都不画），
 // `lower` 时换成一个更低层 mod 画的 `low`。
-function engine(on: On, { lower = false } = {}) {
+function engine(on: On, { lower = false, language = '中文' as string | null } = {}) {
   const clock = mock.clock(on)
+  on('settings.read', () => ({ value: language === null ? {} : { language } }))
   const replies = {
     taskUpdate: (taskId: string): ToolCallResult => ({
       result: { success: true, taskId, updatedFields: ['status'] },
@@ -516,5 +517,28 @@ test('prompt drops subagents that are no longer running', async ($, on) => {
   replies.agents = () => []
   await submit($)
   expect(await textOf(ui, 'toggle')).not.toContain('subagent')
+  await ui.unmount()
+})
+
+test('english when settings language is not chinese', async ($, on) => {
+  engine(on, { language: 'English' })
+  await write($, todos('completed', 'in_progress', 'pending'))
+  await $.agent.spawn(SPAWN)
+  const ui = await $.ui.mount(BAND)
+
+  const toggle = await textOf(ui, 'toggle')
+  expect(toggle).toContain('1 left')
+  expect(toggle).toContain('1 subagent')
+  await ui.press({ key: 'toggle' })
+  expect(await textOf(ui, 'agent-a1')).toContain('running')
+  await ui.unmount()
+})
+
+test('english when settings has no language', async ($, on) => {
+  engine(on, { language: null })
+  await write($, todos('completed', 'completed'))
+  const ui = await $.ui.mount(BAND)
+
+  expect(await textOf(ui, 'toggle')).toBe('✓ 2/2 all done')
   await ui.unmount()
 })

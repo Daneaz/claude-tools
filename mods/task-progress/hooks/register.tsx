@@ -7,13 +7,15 @@ import {
   applyTodoWrite,
   clearIfFinished,
   fit,
+  pickLang,
+  strings,
   summarize,
   sweep,
   textWidth,
   truncate,
   windowRows,
 } from './logic'
-import type { Plan, Subagent, Task } from './logic'
+import type { Lang, Plan, Subagent, Task } from './logic'
 
 // 颜色都用 theme key，跟着终端主题走。
 const GREEN = 'success'
@@ -29,10 +31,9 @@ const BAR = 10
 // 展开行：`  ✓  ` 前缀 5 列，列与列之间空 2 列。
 const PREFIX = 5
 const GAP = 2
-// subagent 行：缩进 7 列（比任务名多 2），`↳ subagent` 10 列，`运行中` 6 列。
+// subagent 行：缩进 7 列（比任务名多 2），`↳ subagent` 10 列，之后是说明与「运行中」。
 const AGENT_INDENT = 7
 const AGENT_TAG = '↳ subagent'
-const RUNNING = '运行中'
 // 展开时给下层（quick-tools 等）至少留的行数；收起行与空行各占 1 行。
 const RESERVED = 3
 const HEAD = 2
@@ -44,6 +45,8 @@ const plan = atom({ plugin: 'task-progress', key: 'plan' } as const, EMPTY)
 const subagents = atom({ plugin: 'task-progress', key: 'subagents' } as const, [] as Subagent[])
 const isOpen = atom({ plugin: 'task-progress', key: 'isOpen' } as const, false)
 const frame = atom({ plugin: 'task-progress', key: 'frame' } as const, 0)
+// 界面语言：计划第一次变化时从 settings 读一次存下（render 里不能写 state）；null = 还没读。
+const lang = atom({ plugin: 'task-progress', key: 'lang' } as const, null as Lang | null)
 
 const isRunning = (t: Task) => t.status === 'in_progress'
 
@@ -78,6 +81,10 @@ async function syncTimer($: EngineInterface) {
   }
 }
 
+async function settingsLang($: EngineInterface): Promise<Lang> {
+  return pickLang(await $.settings.read({ key: 'language' }).catch(() => undefined))
+}
+
 // 计划变空，或上一份已全部完成而这次变化开了新计划（变成未完成），都收起。
 async function changePlan($: EngineInterface, change: (p: Plan) => Plan) {
   let wasFinished = false
@@ -87,6 +94,10 @@ async function changePlan($: EngineInterface, change: (p: Plan) => Plan) {
     now = change(p)
     return now
   })
+  if ((await read($, lang)) === null) {
+    const chosen = await settingsLang($)
+    await update($, lang, () => chosen)
+  }
   if (now.tasks.length === 0 || (wasFinished && !summarize(now).isFinished)) {
     await update($, isOpen, () => false)
   }
@@ -181,20 +192,22 @@ export const register: Register = on => {
     const subs = await read($, subagents)
     const open = await read($, isOpen)
     const tick = open && p.tasks.some(isRunning) ? await read($, frame) : 0
+    const str = strings((await read($, lang)) ?? (await settingsLang($)))
+    const RUNNING = str.running
     const s = summarize(p)
-    const subsNote = subs.length > 0 ? `  · ${subs.length} 个 subagent` : ''
+    const subsNote = subs.length > 0 ? `  · ${str.subagents(subs.length)}` : ''
 
     // 收起行：胶囊 + 序号/总数 + 标题 + 还剩；窄的时候先截标题，胶囊和序号保留。
     let summary
     if (s.isFinished) {
       summary = [
-        <Text mono color={GREEN}>{`✓ ${s.total}/${s.total} 全部完成`}</Text>,
+        <Text mono color={GREEN}>{str.finished(s.total)}</Text>,
         subsNote !== '' && <Text mono dimColor>{subsNote}</Text>,
       ]
     } else {
       const count = `${s.position}/${s.total}`
       const extra = s.extraRunning > 0 ? ` +${s.extraRunning}` : ''
-      const left = `  还剩 ${s.remaining} 个`
+      const left = `  ${str.remaining(s.remaining)}`
       const room = columns - s.total - GAP - textWidth(count) - GAP - textWidth(extra + left + subsNote)
       summary = [
         ...p.tasks.map(t =>
@@ -255,7 +268,7 @@ export const register: Register = on => {
             </Box>
             <Text mono>{'  '}</Text>
             <Box key={`note-${t.id}`}>
-              <Text mono color={BLUE}>{truncate(t.activeForm ?? '进行中', noteWidth)}</Text>
+              <Text mono color={BLUE}>{truncate(t.activeForm ?? str.inProgress, noteWidth)}</Text>
             </Box>
           </Box>
         )
@@ -308,7 +321,7 @@ export const register: Register = on => {
     const win = windowRows(all.length, focus, budget)
     const more = (key: string, n: number) => (
       <Box key={key}>
-        <Text mono dimColor>{`${' '.repeat(PREFIX)}… 另有 ${n} 个`}</Text>
+        <Text mono dimColor>{`${' '.repeat(PREFIX)}${str.more(n)}`}</Text>
       </Box>
     )
     const rows = [

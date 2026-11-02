@@ -1,6 +1,6 @@
 {
   "name": "task-progress",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": { "name": "Daneaz" },
   "description": "A band above the prompt showing the session plan's progress; click to see each task.",
   "types": "./types/index.d.ts"

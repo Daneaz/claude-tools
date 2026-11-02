@@ -6,6 +6,8 @@ import {
   applyTodoWrite,
   clearIfFinished,
   fit,
+  pickLang,
+  strings,
   summarize,
   sweep,
   textWidth,
@@ -170,4 +172,25 @@ test('window never exceeds budget', async () => {
       }
     }
   }
+})
+
+test('language picks chinese from settings, english otherwise', async () => {
+  for (const v of ['中文', '简体中文', 'Chinese', 'chinese', 'zh', 'zh-CN', '繁體中文']) expect(pickLang(v)).toBe('zh')
+  for (const v of ['English', 'en', '日本語', '', undefined, 42]) expect(pickLang(v)).toBe('en')
+})
+
+test('strings in both languages', async () => {
+  expect(strings('zh').remaining(3)).toBe('还剩 3 个')
+  expect(strings('en').remaining(3)).toBe('3 left')
+  expect(strings('zh').finished(4)).toBe('✓ 4/4 全部完成')
+  expect(strings('en').finished(4)).toBe('✓ 4/4 all done')
+  expect(strings('zh').subagents(2)).toBe('2 个 subagent')
+  expect(strings('en').subagents(1)).toBe('1 subagent')
+  expect(strings('en').subagents(2)).toBe('2 subagents')
+  expect(strings('zh').more(5)).toBe('… 另有 5 个')
+  expect(strings('en').more(5)).toBe('… 5 more')
+  expect(strings('zh').running).toBe('运行中')
+  expect(strings('en').running).toBe('running')
+  expect(strings('zh').inProgress).toBe('进行中')
+  expect(strings('en').inProgress).toBe('in progress')
 })

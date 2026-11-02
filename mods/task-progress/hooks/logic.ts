@@ -152,3 +152,42 @@ export function windowRows(
   }
   return { start: focus, end: focus + 1, showAbove: false, showBelow: false }
 }
+
+// 界面语言：settings 的 `language` 是中文（中文 / Chinese / zh…）就用中文，其余（含未设置）用英文。
+export type Lang = 'zh' | 'en'
+
+export function pickLang(language: unknown): Lang {
+  return typeof language === 'string' && /中文|汉语|漢語|chinese|^zh\b/i.test(language.trim()) ? 'zh' : 'en'
+}
+
+// band 上的文案；Done / Next 两种语言都用英文（用户定的）。
+export type Strings = {
+  remaining: (n: number) => string
+  finished: (total: number) => string
+  subagents: (n: number) => string
+  more: (n: number) => string
+  running: string
+  inProgress: string
+}
+
+const ZH: Strings = {
+  remaining: n => `还剩 ${n} 个`,
+  finished: total => `✓ ${total}/${total} 全部完成`,
+  subagents: n => `${n} 个 subagent`,
+  more: n => `… 另有 ${n} 个`,
+  running: '运行中',
+  inProgress: '进行中',
+}
+
+const EN: Strings = {
+  remaining: n => `${n} left`,
+  finished: total => `✓ ${total}/${total} all done`,
+  subagents: n => `${n} subagent${n === 1 ? '' : 's'}`,
+  more: n => `… ${n} more`,
+  running: 'running',
+  inProgress: 'in progress',
+}
+
+export function strings(lang: Lang): Strings {
+  return lang === 'zh' ? ZH : EN
+}

@@ -20,6 +20,6 @@ export type Summary = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'task-progress': { plan: Plan; subagents: Subagent[]; isOpen: boolean; frame: number }
+    'task-progress': { plan: Plan; subagents: Subagent[]; isOpen: boolean; frame: number; lang: 'zh' | 'en' | null }
   }
 }

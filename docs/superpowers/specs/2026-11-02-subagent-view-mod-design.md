@@ -12,6 +12,8 @@ SubAgent View 是一个 Claude Code mod：对话右侧的一个 pane，由用户
 
 - **2026-11-02 v2：去掉计划进度。** 实测（这一 build，连派 3 个 subagent）：subagent 拿不到 TodoWrite / TaskCreate / TaskUpdate（ToolSearch 返回 `No matching deferred tools found`），所以「剩几步」「预计剩余」永远出不来。用户选 A：不靠计划，改为显示已跑时长、工具调用次数和此刻在干什么；用户随后要求在跑的 subagent 加上 task-progress 那种来回弹的工作条。「剩几步 / 还要多久」从意图里移到非目标。
 
+- **2026-11-03 v3：中英双语**（用户要求）。规则与 task-progress 一致：settings 的 `language` 是中文（中文 / Chinese / zh…）用中文，其余（含未设置）用英文；开局与 `/clear` 后定一次。英文文案：`N running` / `N done` / `N failed`、`› starting`、`N tool call(s)`、已结束行 `N call(s)` / `failed` / `stopped`、`Ended`、空状态 `No subagents in this session yet.` / `They show up here once dispatched.`。标题、avatar 短名称、工具名两种语言相同（我的决定）。
+
 ## 目标
 
 - pane 顶部是总览：几个在跑 / 完成 / 失败。

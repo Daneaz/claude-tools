@@ -7,6 +7,8 @@ import {
   endStateOf,
   fit,
   formatElapsed,
+  pickLang,
+  strings,
   ordered,
   overviewOf,
   recordTool,
@@ -16,7 +18,7 @@ import {
   textWidth,
   truncate,
 } from './logic'
-import type { Agent, AgentState } from './logic'
+import type { Agent, AgentState, Lang } from './logic'
 
 const PANE = 'subagent-view'
 const TITLE = 'SubAgent View'
@@ -45,6 +47,12 @@ const ENDED: AgentState[] = ['completed', 'failed', 'killed']
 const agents = atom({ plugin: 'subagent-view', key: 'agents' } as const, [] as Agent[], { shape: 'agents-2' })
 const isOpen = atom({ plugin: 'subagent-view', key: 'isOpen' } as const, false)
 const frame = atom({ plugin: 'subagent-view', key: 'frame' } as const, 0)
+// 开局（及 /clear 后）按 settings 定一次；null = 还没定，画的时候现读。
+const lang = atom({ plugin: 'subagent-view', key: 'lang' } as const, null as Lang | null)
+
+async function settingsLang($: EngineInterface): Promise<Lang> {
+  return pickLang(await $.settings.read({ key: 'language' }).catch(() => undefined))
+}
 
 const isTracked = async ($: EngineInterface, agentId: string | undefined) =>
   agentId !== undefined && (await read($, agents)).some(a => a.agentId === agentId)
@@ -113,6 +121,8 @@ async function init($: EngineInterface) {
   await $.command.register({ name: 'subagents', description: 'Show or hide the SubAgent View pane', immediate: true })
   const open = await isPaneOpen($)
   await update($, isOpen, () => open)
+  const chosen = await settingsLang($)
+  await update($, lang, () => chosen)
   await syncTimer($)
 }
 
@@ -210,6 +220,7 @@ export const register: Register = on => {
     const { Box, Text } = $.ui.resolve(e)
     const W = e.props.bodyColumns
     const list = await read($, agents)
+    const str = strings((await read($, lang)) ?? (await settingsLang($)))
     const now = await $.clock.now()
     const tick = await read($, frame)
     const spin = SPINNER[tick % SPINNER.length] ?? SPINNER[0]
@@ -222,8 +233,8 @@ export const register: Register = on => {
         <Box key="root" flexDirection="column">
           <Box key="row-title"><Text mono color={BLUE} weight="bold">{TITLE}</Text></Box>
           <Box key="row-gap"><Text mono> </Text></Box>
-          <Box key="row-empty-1"><Text mono dimColor>{truncate('这个 session 还没派出 subagent。', W)}</Text></Box>
-          <Box key="row-empty-2"><Text mono dimColor>{truncate('派出后会出现在这里。', W)}</Text></Box>
+          <Box key="row-empty-1"><Text mono dimColor>{truncate(str.empty1, W)}</Text></Box>
+          <Box key="row-empty-2"><Text mono dimColor>{truncate(str.empty2, W)}</Text></Box>
         </Box>
       )
     }
@@ -233,9 +244,9 @@ export const register: Register = on => {
 
     // 总览第 1 行：标题 + 各项计数（为 0 的不显示），计数靠右。
     const counts = [
-      o.running > 0 && { text: `${o.running} 在跑`, color: BLUE },
-      o.completed > 0 && { text: `${o.completed} 完成`, color: GREEN },
-      o.failed > 0 && { text: `${o.failed} 失败`, color: RED },
+      o.running > 0 && { text: str.running(o.running), color: BLUE },
+      o.completed > 0 && { text: str.done(o.completed), color: GREEN },
+      o.failed > 0 && { text: str.failed(o.failed), color: RED },
     ].filter(c => c !== false)
     const countsText = counts.map(c => c.text).join('  ')
     const titleRow = (
@@ -282,7 +293,7 @@ export const register: Register = on => {
       const rows = [index > 0 && <Box key={`row-${id}-gap`}><Text mono> </Text></Box>, line1]
 
       // 第 2 行：工作条（窄时省掉）+ `› 工具 参数` + 靠右的调用次数；没调过工具时只写 `› 启动中`。
-      const calls = `${a.toolCalls} 次工具`
+      const calls = str.toolCalls(a.toolCalls)
       const callsRoom = a.lastTool === undefined ? 0 : 1 + textWidth(calls)
       const hasBar = W - INDENT.length - BAR - 2 - callsRoom >= MIN_ACTIVITY
       const bar = hasBar
@@ -297,7 +308,7 @@ export const register: Register = on => {
           <Box key={`row-${id}-2`}>
             <Text mono>{INDENT}</Text>
             {bar}
-            <Text mono dimColor>{truncate('› 启动中', Math.max(0, W - lead))}</Text>
+            <Text mono dimColor>{truncate(`› ${str.starting}`, Math.max(0, W - lead))}</Text>
           </Box>,
         )
         return rows
@@ -322,7 +333,7 @@ export const register: Register = on => {
     const endedRow = (a: Agent) => {
       const ok = a.state === 'completed'
       const mark = ok ? '✓' : '✗'
-      const result = ok ? (a.toolCalls > 0 ? `${a.toolCalls} 次` : '') : a.state === 'killed' ? '已停止' : '失败'
+      const result = ok ? (a.toolCalls > 0 ? str.calls(a.toolCalls) : '') : a.state === 'killed' ? str.killed : str.failedEnd
       const elapsed = formatElapsed((a.endedAt ?? now) - a.startedAt)
       const tail = result ? `  ${result}` : ''
       const room = W - 2 - HEAD - textWidth(tail) - 2 - textWidth(elapsed)
@@ -346,7 +357,7 @@ export const register: Register = on => {
         {ended.length > 0 && running.length > 0 && divider('row-divider-2')}
         {ended.length > 0 && (
           <Box key="row-ended">
-            <Text mono dimColor>已结束</Text>
+            <Text mono dimColor>{str.ended}</Text>
           </Box>
         )}
         {ended.map(endedRow)}

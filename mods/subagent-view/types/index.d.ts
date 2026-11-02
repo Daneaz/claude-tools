@@ -15,6 +15,6 @@ export type Agent = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'subagent-view': { agents: Shaped<Agent[]>; isOpen: boolean; frame: number }
+    'subagent-view': { agents: Shaped<Agent[]>; isOpen: boolean; frame: number; lang: 'zh' | 'en' | null }
   }
 }

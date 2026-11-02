@@ -152,6 +152,62 @@ export function sweep(frame: number, width = 10, len = 3): boolean[] {
   return Array.from({ length: width }, (_, i) => i >= start && i < start + len)
 }
 
+// 界面语言：settings 的 `language` 是中文（中文 / Chinese / zh…）就用中文，其余（含未设置）用英文。与 task-progress 同一规则。
+export type Lang = 'zh' | 'en'
+
+export function pickLang(language: unknown): Lang {
+  return typeof language === 'string' && /中文|汉语|漢語|chinese|^zh\b/i.test(language.trim()) ? 'zh' : 'en'
+}
+
+// pane 上的文案；标题 SubAgent View、avatar 短名称、工具名两种语言都一样。
+export type Strings = {
+  running: (n: number) => string
+  done: (n: number) => string
+  failed: (n: number) => string
+  toolCalls: (n: number) => string
+  calls: (n: number) => string
+  starting: string
+  ended: string
+  killed: string
+  failedEnd: string
+  empty1: string
+  empty2: string
+}
+
+const ZH: Strings = {
+  running: n => `${n} 在跑`,
+  done: n => `${n} 完成`,
+  failed: n => `${n} 失败`,
+  toolCalls: n => `${n} 次工具`,
+  calls: n => `${n} 次`,
+  starting: '启动中',
+  ended: '已结束',
+  killed: '已停止',
+  failedEnd: '失败',
+  empty1: '这个 session 还没派出 subagent。',
+  empty2: '派出后会出现在这里。',
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+const EN: Strings = {
+  running: n => `${n} running`,
+  done: n => `${n} done`,
+  failed: n => `${n} failed`,
+  toolCalls: n => plural(n, 'tool call'),
+  calls: n => plural(n, 'call'),
+  starting: 'starting',
+  ended: 'Ended',
+  killed: 'stopped',
+  failedEnd: 'failed',
+  empty1: 'No subagents in this session yet.',
+  empty2: 'They show up here once dispatched.',
+}
+
+export function strings(lang: Lang): Strings {
+  return lang === 'zh' ? ZH : EN
+}
+
 export function ordered(list: Agent[]): { running: Agent[]; ended: Agent[] } {
   return {
     running: list.filter(a => a.state === 'running'),

@@ -22,8 +22,10 @@ const PANE = {
 // 充当 engine：agent.spawn 依次发 a1、a2、…（resume 时沿用原 id）；agent.list 默认列出派过的、都在运行，
 // 可由测试换掉；ui.open / ui.close 记下收到的 id。
 // panes：engine 记录的、本 plugin 开着的 pane（ui.open 加入、ui.close 移除），可由测试预置。
-function engine(on: On, { panes = [] as string[] } = {}) {
+// language：settings 里的 `language`（null = 未设置）；默认中文，现有断言都按中文写。
+function engine(on: On, { panes = [] as string[], language = '中文' as string | null } = {}) {
   const clock = mock.clock(on)
+  on('settings.read', () => ({ value: language === null ? {} : { language } }))
   const open = new Set(panes)
   const spawned: { id: string; spawnedBy?: string }[] = []
   const opened: string[] = []
@@ -533,3 +535,47 @@ for (const surface of ['vscode'] as const) {
     await ui.unmount()
   })
 }
+
+test('english when settings language is not chinese', async ($, on) => {
+  engine(on, { language: 'English' })
+  const a = await spawn($, { description: 'login page' })
+  await call($, 'Read', { file_path: '/x/a.ts' }, a)
+  await call($, 'Read', { file_path: '/x/b.ts' }, a)
+  await spawn($, { subagentType: 'Explore', description: 'search' })
+  const b = await spawn($, { description: 'one call' })
+  await call($, 'Read', { file_path: '/x/a.ts' }, b)
+  const c = await spawn($, { description: 'broke' })
+  const d = await spawn($, { description: 'halted' })
+  await $.turn.complete({ ...DONE, agentId: b })
+  await $.turn.complete({ ...DONE, reason: 'error', agentId: c })
+  await $.turn.complete({ ...DONE, reason: 'aborted', isAborted: true, agentId: d })
+  const ui = await $.ui.mount(PANE)
+
+  expect(await hasRow(ui, 'SubAgent View', '2 running', '1 done', '2 failed')).toBe(true)
+  expect(await hasRow(ui, '› Read b.ts', '2 tool calls')).toBe(true)
+  expect(await hasRow(ui, '› starting')).toBe(true)
+  expect(await hasRow(ui, 'Ended')).toBe(true)
+  expect(await hasRow(ui, '✓', 'one call', '1 call')).toBe(true)
+  expect(await hasRow(ui, '✗', 'broke', 'failed')).toBe(true)
+  expect(await hasRow(ui, '✗', 'halted', 'stopped')).toBe(true)
+  expect((await rows(ui)).some(r => /[\u4e00-\u9fff]/.test(r))).toBe(false)
+  await ui.unmount()
+})
+
+test('english empty pane when settings has no language', async ($, on) => {
+  engine(on, { language: null })
+  const ui = await $.ui.mount(PANE)
+  expect(await hasRow(ui, 'No subagents in this session yet.')).toBe(true)
+  expect(await hasRow(ui, 'They show up here once dispatched.')).toBe(true)
+  await ui.unmount()
+})
+
+test('one running call reads singular', async ($, on) => {
+  engine(on, { language: 'English' })
+  const a = await spawn($)
+  await call($, 'Read', { file_path: '/x/a.ts' }, a)
+  const ui = await $.ui.mount(PANE)
+  expect(await hasRow(ui, '› Read a.ts', '1 tool call')).toBe(true)
+  expect(await hasRow(ui, '1 tool calls')).toBe(false)
+  await ui.unmount()
+})

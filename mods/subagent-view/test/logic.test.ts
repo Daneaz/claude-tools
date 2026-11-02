@@ -6,6 +6,8 @@ import {
   endStateOf,
   fit,
   formatElapsed,
+  pickLang,
+  strings,
   ordered,
   overviewOf,
   recordTool,
@@ -142,4 +144,27 @@ test('emoji count as two columns', async () => {
   for (const e of ['📟', '🔒', '📊', '🔭', '🧰', '🥊']) expect(textWidth(e)).toBe(2)
   expect(truncate('CodeReviewer', 10)).toBe('CodeRevie…')
   expect(fit('🔭 Explore', 12)).toBe('🔭 Explore  ')
+})
+
+test('language picks chinese from settings, english otherwise', async () => {
+  for (const v of ['中文', '简体中文', 'Chinese', 'zh-CN', ' 汉语 ']) expect(pickLang(v)).toBe('zh')
+  for (const v of ['English', 'japanese', '', undefined, 42]) expect(pickLang(v)).toBe('en')
+})
+
+test('strings in both languages', async () => {
+  const zh = strings('zh')
+  const en = strings('en')
+  expect([zh.running(3), zh.done(1), zh.failed(2)]).toEqual(['3 在跑', '1 完成', '2 失败'])
+  expect([en.running(3), en.done(1), en.failed(2)]).toEqual(['3 running', '1 done', '2 failed'])
+  expect([zh.toolCalls(7), zh.calls(7)]).toEqual(['7 次工具', '7 次'])
+  expect([en.toolCalls(1), en.toolCalls(7), en.calls(1), en.calls(7)]).toEqual([
+    '1 tool call',
+    '7 tool calls',
+    '1 call',
+    '7 calls',
+  ])
+  expect([zh.starting, zh.ended, zh.killed, zh.failedEnd]).toEqual(['启动中', '已结束', '已停止', '失败'])
+  expect([en.starting, en.ended, en.killed, en.failedEnd]).toEqual(['starting', 'Ended', 'stopped', 'failed'])
+  expect([zh.empty1, zh.empty2]).toEqual(['这个 session 还没派出 subagent。', '派出后会出现在这里。'])
+  expect([en.empty1, en.empty2]).toEqual(['No subagents in this session yet.', 'They show up here once dispatched.'])
 })

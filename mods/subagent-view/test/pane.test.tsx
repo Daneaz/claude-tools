@@ -215,7 +215,7 @@ test('denied call is not counted; errored call is', async ($, on) => {
   await later.unmount()
 })
 
-test('sweep bar is dropped when bodyColumns < 24', async ($, on) => {
+test('sweep bar is dropped when it would squeeze the activity text', async ($, on) => {
   engine(on)
   const id = await spawn($)
   await call($, 'Read', { file_path: '/x/a.ts' }, id)
@@ -228,8 +228,17 @@ test('sweep bar is dropped when bodyColumns < 24', async ($, on) => {
   expect(textWidth(line2)).toBeLessThanOrEqual(20)
   await narrow.unmount()
 
-  const wide = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 24 } })
-  expect((await rows(wide)).some(r => BAR.test(r))).toBe(true)
+  // 24 列：工作条 + 次数之后只剩 0 列给「› Read …」，宁可不画工作条。
+  const tight = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 24 } })
+  const tightRows = await rows(tight)
+  expect(tightRows.some(r => /[▰▱]/.test(r))).toBe(false)
+  expect(tightRows.some(r => r.includes('› Read'))).toBe(true)
+  await tight.unmount()
+
+  const wide = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 40 } })
+  const wideRows = await rows(wide)
+  expect(wideRows.some(r => BAR.test(r))).toBe(true)
+  expect(wideRows.some(r => r.includes('› Read a.ts'))).toBe(true)
   await wide.unmount()
 })
 

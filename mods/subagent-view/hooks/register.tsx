@@ -33,9 +33,9 @@ const NAME = 10
 const HEAD = 2 + 1 + NAME + 1
 // 第 2 行的缩进。
 const INDENT = '   '
-// 工作条格数；可用宽度小于 MIN_BAR_W 时省掉工作条。
+// 工作条格数；画了工作条后留给「› 工具 hint」不足 MIN_ACTIVITY 列时省掉工作条。
 const BAR = 10
-const MIN_BAR_W = 24
+const MIN_ACTIVITY = 8
 // 计时器每走这么多帧，按 $.agent.list() 自愈一次。
 const HEAL_EVERY = 30
 // $.agent.list() 里算已结束的状态。
@@ -282,7 +282,9 @@ export const register: Register = on => {
       const rows = [index > 0 && <Box key={`row-${id}-gap`}><Text mono> </Text></Box>, line1]
 
       // 第 2 行：工作条（窄时省掉）+ `› 工具 参数` + 靠右的调用次数；没调过工具时只写 `› 启动中`。
-      const hasBar = W >= MIN_BAR_W
+      const calls = `${a.toolCalls} 次工具`
+      const callsRoom = a.lastTool === undefined ? 0 : 1 + textWidth(calls)
+      const hasBar = W - INDENT.length - BAR - 2 - callsRoom >= MIN_ACTIVITY
       const bar = hasBar
         ? [
             ...sweep(tick, BAR).map(lit => <Text mono color={lit ? BLUE : DARK}>{lit ? '▰' : '▱'}</Text>),
@@ -300,7 +302,6 @@ export const register: Register = on => {
         )
         return rows
       }
-      const calls = `${a.toolCalls} 次工具`
       const activity = truncate(
         `› ${a.lastTool.tool}${a.lastTool.hint ? ` ${a.lastTool.hint}` : ''}`,
         Math.max(0, W - lead - 1 - textWidth(calls)),

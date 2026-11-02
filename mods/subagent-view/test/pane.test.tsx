@@ -19,8 +19,6 @@ const PANE = {
   },
 } as const
 
-type Status = 'pending' | 'in_progress' | 'completed'
-
 // 充当 engine：agent.spawn 依次发 a1、a2、…（resume 时沿用原 id）；agent.list 默认列出派过的、都在运行，
 // 可由测试换掉；ui.open / ui.close 记下收到的 id。
 // panes：engine 记录的、本 plugin 开着的 pane（ui.open 加入、ui.close 移除），可由测试预置。
@@ -50,19 +48,12 @@ function engine(on: On, { panes = [] as string[] } = {}) {
     // 下一次派出的 agent 由哪个 plugin 派出（模拟别的 mod 的 $.agent.spawn）。
     nextSpawnedBy: undefined as string | undefined,
   }
-  let lastId = 0
+  // Bash 的 command 为 'deny' 时拒绝，为 'fail' 时报错；其余一律答空结果。
   on('tool.call', (_, e) => {
-    switch (e.tool) {
-      case 'TodoWrite':
-        return { result: { oldTodos: [], newTodos: e.todos } }
-      case 'TaskCreate':
-        lastId += 1
-        return { result: { task: { id: String(lastId), subject: e.subject } } }
-      case 'TaskUpdate':
-        return { result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }
-      default:
-        return { result: {} }
-    }
+    const command = (e as unknown as { command?: unknown }).command
+    if (command === 'deny') return { deny: 'no' }
+    if (command === 'fail') return { result: {}, isError: true }
+    return { result: {} }
   })
   on('agent.spawn', (_, e) => {
     if (e.resume !== undefined) return { model: 'm', agentId: e.resume.agentId }
@@ -118,17 +109,16 @@ async function spawn($: Engine, extra: Partial<SpawnInput> = {}) {
   return r.agentId ?? ''
 }
 
-// 7 步：完成 done 步，下一步进行中（activeForm 为「正在写测试」），其余未开始。
-function plan(total: number, done: number) {
-  return Array.from({ length: total }, (_, i) => {
-    const status: Status = i < done ? 'completed' : i === done ? 'in_progress' : 'pending'
-    return { content: `步骤 ${i + 1}`, status, activeForm: i === done ? '正在写测试' : `正在步骤 ${i + 1}` }
-  })
+// 按任意工具的输入传（Read、Grep 等不一定在 tool.call 的类型表里）。
+async function call($: Engine, tool: string, input: Record<string, unknown>, agentId?: string) {
+  await $.tool.call({ tool, ...input, ...(agentId === undefined ? {} : { agentId }) } as unknown as Parameters<
+    Engine['tool']['call']
+  >[0])
 }
 
-async function write($: Engine, todos: ReturnType<typeof plan>, agentId?: string) {
-  await $.tool.call({ tool: 'TodoWrite', todos, ...(agentId === undefined ? {} : { agentId }) })
-}
+// 第 2 行：缩进之后的工作条。
+const BAR = /[▰▱]{10}/
+const litCount = (row: string) => [...(row.match(BAR)?.[0] ?? '')].filter(c => c === '▰').length
 
 type Ui = { findAll: (q: { type: string }) => Promise<{ key: string | undefined; text: string }[]> }
 
@@ -169,74 +159,124 @@ test('spawned agent shows avatar, name, description', async ($, on) => {
   await ui.unmount()
 })
 
-test('subagent plan drives progress', async ($, on) => {
-  const { clock } = engine(on)
-  const id = await spawn($)
-  await write($, plan(7, 3), id)
+test('main loop tool calls are not counted', async ($, on) => {
+  engine(on)
+  await spawn($)
+  await call($, 'Read', { file_path: '/x/main.ts' })
   const ui = await $.ui.mount(PANE)
 
-  expect(await hasRow(ui, '3/7', '剩 4 步')).toBe(true)
-  expect(await hasRow(ui, '› 正在写测试')).toBe(true)
+  expect(await hasRow(ui, '› 启动中')).toBe(true)
+  expect(await hasRow(ui, 'main.ts')).toBe(false)
+  expect(await hasRow(ui, '次工具')).toBe(false)
+  await ui.unmount()
+})
+
+test('running agent shows sweep bar, last tool and count', async ($, on) => {
+  engine(on)
+  const id = await spawn($, { subagentType: 'general-purpose', description: '实现登录接口' })
+  await call($, 'Read', { file_path: '/x/logic.ts' }, id)
+  await call($, 'Read', { file_path: '/x/logic.ts' }, id)
+  const ui = await $.ui.mount(PANE)
+
+  const all = await rows(ui)
+  const i = all.findIndex(r => r.includes('实现登录接口'))
+  const line2 = all[i + 1] ?? ''
+  expect(line2.startsWith('   ')).toBe(true)
+  expect(BAR.test(line2)).toBe(true)
+  expect(litCount(line2)).toBe(3)
+  expect(line2.includes('› Read logic.ts')).toBe(true)
+  expect(line2.includes('2 次工具')).toBe(true)
+  await ui.unmount()
+})
+
+test('agent with no tool calls shows 启动中 without count', async ($, on) => {
+  engine(on)
+  await spawn($)
+  const ui = await $.ui.mount(PANE)
+
+  expect(await hasRow(ui, '› 启动中')).toBe(true)
+  expect(await hasRow(ui, '次工具')).toBe(false)
+  await ui.unmount()
+})
+
+test('denied call is not counted; errored call is', async ($, on) => {
+  engine(on)
+  const id = await spawn($)
+  await call($, 'Grep', { pattern: 'useAuth' }, id)
+  await call($, 'Bash', { command: 'deny', description: '被拒的' }, id)
+  const ui = await $.ui.mount(PANE)
+  expect(await hasRow(ui, '› Grep "useAuth"', '1 次工具')).toBe(true)
+  expect(await hasRow(ui, '被拒的')).toBe(false)
   await ui.unmount()
 
-  // 时长与预计时间在渲染时用 $.clock.now() 现算：pane 关着不走表，重新 mount 读到新时间。
-  await clock.advance(180_000)
+  await call($, 'Bash', { command: 'fail', description: '跑测试' }, id)
   const later = await $.ui.mount(PANE)
-  expect(await hasRow(later, '3/7', '≈ 4m')).toBe(true)
-  expect(await hasRow(later, '🎨', '3m00s')).toBe(true)
+  expect(await hasRow(later, '› Bash 跑测试', '2 次工具')).toBe(true)
   await later.unmount()
 })
 
-test('main loop plan is ignored', async ($, on) => {
-  engine(on)
-  await spawn($)
-  await write($, plan(7, 3))
-  const ui = await $.ui.mount(PANE)
-
-  expect(await hasRow(ui, '没有计划')).toBe(true)
-  expect(await hasRow(ui, '3/7')).toBe(false)
-  await ui.unmount()
-})
-
-test('no plan shows last tool', async ($, on) => {
+test('sweep bar is dropped when it would squeeze the activity text', async ($, on) => {
   engine(on)
   const id = await spawn($)
-  // Grep 不在 tool.call 的类型表里，按任意工具的输入传。
-  await $.tool.call({ tool: 'Grep', pattern: 'useAuth', agentId: id } as unknown as Parameters<Engine['tool']['call']>[0])
+  await call($, 'Read', { file_path: '/x/a.ts' }, id)
+  const narrow = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 20 } })
+  const all = await rows(narrow)
+  expect(all.some(r => /[▰▱]/.test(r))).toBe(false)
+  // 第 2 行不超宽（第 1 行的 avatar + 名称 + 时长在 20 列下本就放不下，v1 起如此，不在本次范围）。
+  const line2 = all.find(r => r.includes('› Read')) ?? ''
+  expect(line2.includes('1 次工具')).toBe(true)
+  expect(textWidth(line2)).toBeLessThanOrEqual(20)
+  await narrow.unmount()
+
+  // 24 列：工作条 + 次数之后只剩 0 列给「› Read …」，宁可不画工作条。
+  const tight = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 24 } })
+  const tightRows = await rows(tight)
+  expect(tightRows.some(r => /[▰▱]/.test(r))).toBe(false)
+  expect(tightRows.some(r => r.includes('› Read'))).toBe(true)
+  await tight.unmount()
+
+  const wide = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 40 } })
+  const wideRows = await rows(wide)
+  expect(wideRows.some(r => BAR.test(r))).toBe(true)
+  expect(wideRows.some(r => r.includes('› Read a.ts'))).toBe(true)
+  await wide.unmount()
+})
+
+test('ended row shows call count or 失败/已停止', async ($, on) => {
+  engine(on)
+  const a = await spawn($, { description: '做了三次' })
+  await call($, 'Read', { file_path: '/x/a.ts' }, a)
+  await call($, 'Read', { file_path: '/x/a.ts' }, a)
+  await call($, 'Read', { file_path: '/x/a.ts' }, a)
+  const b = await spawn($, { description: '没调工具' })
+  const c = await spawn($, { description: '出错了' })
+  const d = await spawn($, { description: '被停了' })
+  await $.turn.complete({ ...DONE, agentId: a })
+  await $.turn.complete({ ...DONE, agentId: b })
+  await $.turn.complete({ ...DONE, reason: 'error', agentId: c })
+  await $.turn.complete({ ...DONE, reason: 'aborted', isAborted: true, agentId: d })
   const ui = await $.ui.mount(PANE)
 
-  expect(await hasRow(ui, '没有计划', '最近：Grep "useAuth"')).toBe(true)
+  expect(await hasRow(ui, '✓', '做了三次', '3 次')).toBe(true)
+  const none = (await rows(ui)).find(r => r.includes('没调工具')) ?? ''
+  expect(none.startsWith('✓')).toBe(true)
+  expect(none.includes('次')).toBe(false)
+  expect(await hasRow(ui, '✗', '出错了', '失败')).toBe(true)
+  expect(await hasRow(ui, '✗', '被停了', '已停止')).toBe(true)
+  expect((await rows(ui)).some(r => /[▰▱]/.test(r))).toBe(false)
   await ui.unmount()
 })
 
 test('overview line', async ($, on) => {
   engine(on)
-  const a = await spawn($)
-  const b = await spawn($, { subagentType: 'general-purpose', description: '实现登录接口' })
-  await write($, plan(7, 3), a)
-  await write($, plan(4, 1), b)
+  await spawn($)
+  await spawn($, { subagentType: 'general-purpose', description: '实现登录接口' })
   const ui = await $.ui.mount(PANE)
 
   expect(await hasRow(ui, 'SubAgent View', '2 在跑')).toBe(true)
-  expect(await hasRow(ui, '合计剩余 7 步', '剩余时间')).toBe(true)
+  expect(await hasRow(ui, '合计剩余')).toBe(false)
+  expect(await hasRow(ui, '剩余时间')).toBe(false)
   await ui.unmount()
-})
-
-// 不到 1 分钟时不带「约」；否则「约 N 分钟」。
-test('overview eta wording', async ($, on) => {
-  const { clock } = engine(on)
-  const a = await spawn($)
-  await write($, plan(7, 3), a)
-  const ui = await $.ui.mount(PANE)
-  expect(await hasRow(ui, '剩余时间不到 1 分钟')).toBe(true)
-  expect(await hasRow(ui, '剩余时间约')).toBe(false)
-  await ui.unmount()
-
-  // 已跑 4.5 分钟完成 3 步：剩 4 步约 6 分钟。
-  await clock.advance(270_000)
-  const later = await $.ui.mount(PANE)
-  expect(await hasRow(later, '剩余时间约 6 分钟')).toBe(true)
-  await later.unmount()
 })
 
 test('ended agents sink', async ($, on) => {
@@ -429,13 +469,14 @@ test('layout fits bodyColumns', async ($, on) => {
   const { clock } = engine(on)
   const long = '把登录接口拆成三个服务并补上集成测试与文档以及回滚方案和监控告警'
   const a = await spawn($, { description: long })
-  await write($, plan(40, 3), a)
+  await call($, 'Bash', { description: '跑一个名字非常非常长的集成测试套件并收集覆盖率报告' }, a)
   await spawn($, { subagentType: 'Explore', description: '搜索调用点' })
   const c = await spawn($, { subagentType: 'motion-director', description: '打击感时间轴' })
+  await call($, 'Read', { file_path: '/x/timeline.ts' }, c)
   const d = await spawn($, { subagentType: 'code-reviewer', description: '审查 spec' })
-  await write($, plan(6, 2), d)
+  await call($, 'Read', { file_path: '/x/spec.md' }, d)
   const e = await spawn($, { subagentType: 'general-purpose', description: '迁移数据库' })
-  await write($, plan(5, 0), e)
+  await call($, 'Grep', { pattern: 'migrate' }, e)
   await clock.advance(150_000)
   await $.turn.complete({ ...DONE, agentId: c })
   await $.turn.complete({ ...DONE, reason: 'error', agentId: d })
@@ -443,28 +484,35 @@ test('layout fits bodyColumns', async ($, on) => {
 
   const all = await rows(ui)
   for (const r of all) expect(textWidth(r)).toBeLessThanOrEqual(60)
-  // 胶囊截断，但 a/b 保留。
-  expect(await hasRow(ui, '3/40', '剩 37 步')).toBe(true)
+  // 说明与简短参数截断，但次数保留并靠右。
   expect(await hasRow(ui, long.slice(0, 4), '…')).toBe(true)
-  expect(await hasRow(ui, '0/5', '估算中')).toBe(true)
-  expect(await hasRow(ui, '✗', '🔍', '停在 2/6')).toBe(true)
+  expect(await hasRow(ui, '› Bash', '…', '1 次工具')).toBe(true)
+  expect(all.filter(r => r.endsWith('次工具')).length).toBe(2)
+  for (const r of all.filter(r => r.endsWith('次工具'))) expect(textWidth(r)).toBe(60)
+  expect(await hasRow(ui, '✓', '🎬', '1 次')).toBe(true)
+  expect(await hasRow(ui, '✗', '🔍', '失败')).toBe(true)
   // 分隔线铺满宽度；右侧时长靠右对齐。
   expect(all.some(r => r === '─'.repeat(60))).toBe(true)
   expect(all.filter(r => r.endsWith('2m30s')).length).toBeGreaterThanOrEqual(5)
   for (const r of all.filter(r => r.endsWith('2m30s'))) expect(textWidth(r)).toBe(60)
   await ui.unmount()
+
+  const narrow = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 40 } })
+  for (const r of await rows(narrow)) expect(textWidth(r)).toBeLessThanOrEqual(40)
+  expect((await rows(narrow)).some(r => /[▰▱]{10}/.test(r))).toBe(true)
+  await narrow.unmount()
 })
 
 // 桌面 app 也画同样的 pane；Text 都用 mono，列与 terminal 一样对齐。
 test('draws on desktop too', async ($, on) => {
   engine(on)
   const a = await spawn($)
-  await write($, plan(7, 3), a)
+  await call($, 'Read', { file_path: '/x/login.html' }, a)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
 
   expect(await hasRow(ui, 'SubAgent View', '1 在跑')).toBe(true)
   expect(await hasRow(ui, '🎨', 'Designer', '出登录页设计稿')).toBe(true)
-  expect(await hasRow(ui, '3/7', '剩 4 步')).toBe(true)
+  expect(await hasRow(ui, '› Read login.html', '1 次工具')).toBe(true)
   const texts = (await ui.findAll({ type: 'Text' })) as unknown as { props: { mono?: boolean } }[]
   expect(texts.length).toBeGreaterThan(0)
   for (const t of texts) expect(t.props.mono).toBe(true)

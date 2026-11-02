@@ -2,6 +2,6 @@
   "name": "subagent-view",
   "version": "0.1.0",
   "author": { "name": "Daneaz" },
-  "description": "A side pane showing each subagent's plan progress and time left.",
+  "description": "A side pane showing what each subagent is doing and for how long.",
   "types": "./types/index.d.ts"
 }

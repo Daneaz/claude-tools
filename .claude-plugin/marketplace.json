@@ -18,7 +18,7 @@
     {
       "name": "subagent-view",
       "source": "./mods/subagent-view",
-      "description": "A side pane showing each subagent's plan progress and time left."
+      "description": "A side pane showing what each subagent is doing and for how long."
     },
     {
       "name": "blast-radius",

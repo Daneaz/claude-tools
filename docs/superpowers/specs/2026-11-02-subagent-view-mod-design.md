@@ -10,7 +10,7 @@ SubAgent View 是一个 Claude Code mod：对话右侧的一个 pane，由用户
 
 ## 修订记录
 
-- **2026-11-02 v2：去掉计划进度。** 实测（这一 build，连派 3 个 subagent）：subagent 拿不到 TodoWrite / TaskCreate / TaskUpdate（ToolSearch 返回 `No matching deferred tools found`），所以「剩几步」「预计剩余」永远出不来。用户选 A：不靠计划，改为显示已跑时长、工具调用次数和此刻在干什么。「剩几步 / 还要多久」从意图里移到非目标。
+- **2026-11-02 v2：去掉计划进度。** 实测（这一 build，连派 3 个 subagent）：subagent 拿不到 TodoWrite / TaskCreate / TaskUpdate（ToolSearch 返回 `No matching deferred tools found`），所以「剩几步」「预计剩余」永远出不来。用户选 A：不靠计划，改为显示已跑时长、工具调用次数和此刻在干什么；用户随后要求在跑的 subagent 加上 task-progress 那种来回弹的工作条。「剩几步 / 还要多久」从意图里移到非目标。
 
 ## 目标
 
@@ -44,13 +44,13 @@ pane 标题：`SubAgent View`。
 SubAgent View          3 在跑  1 完成  1 失败
 ──────────────────────────────────────────────
 🎨 Designer  出登录页设计稿         ⠋ 4m12s
-   › Write login.html               18 次工具
+   ▱▱▰▰▰▱▱▱▱▱  › Write login.html  18 次工具
 
 🧰 General   实现登录接口           ⠋ 1m03s
-   › Bash 跑单元测试                 7 次工具
+   ▱▱▱▱▱▰▰▰▱▱  › Bash 跑单元测试    7 次工具
 
 🔭 Explore   搜索调用点             ⠋ 0m02s
-   › 启动中
+   ▰▰▰▱▱▱▱▱▱▱  › 启动中
 ──────────────────────────────────────────────
 已结束
 ✓ 🎬 Motion   打击感时间轴   12 次   2m30s
@@ -65,8 +65,10 @@ SubAgent View          3 在跑  1 完成  1 失败
 ### 每个在跑的 subagent（2 行，块之间空一行）
 
 - 第 1 行：avatar + 短名称（加粗）+ 任务说明（派它时 `Agent` 工具的 `description`）+ 靠右的转圈 `⠋`（蓝，braille 帧动画）+ 已跑时长（dim，`4m12s`，超过 1 小时显示 `1h03m`）。
-- 第 2 行：`› ` + 最近一次工具调用的工具名 + 简短参数（蓝）+ 靠右 `N 次工具`（dim，累计调用次数）。简短参数取最能说明意图的字段（如 Grep 的 pattern、Read / Write / Edit 的文件名、Bash 的 description），沿用 v1 已有的 `toolHint`。还没调过工具时只写 `› 启动中`（dim），不显示次数。
-- 说明文字、简短参数过长截断加 `…`。
+- 第 2 行开头是工作条（用户要求，参照 task-progress 进行中任务的那条）：10 格，3 格亮光（蓝 `▰`）在暗格（`▱`，`subtle`）里来回弹，每帧挪一格，与转圈共用同一个 frame 计时器；pane 关着或没有在跑的时不动。它只表示「在干活」，不代表完成比例。工作条后空两格接 `› `。
+- 第 2 行接着：`› ` + 最近一次工具调用的工具名 + 简短参数（蓝）+ 靠右 `N 次工具`（dim，累计调用次数）。简短参数取最能说明意图的字段（如 Grep 的 pattern、Read / Write / Edit 的文件名、Bash 的 description），沿用 v1 已有的 `toolHint`。还没调过工具时只写 `› 启动中`（dim），不显示次数。
+- 说明文字、简短参数过长截断加 `…`。pane 很窄、放不下工作条加 `› ` 至少几个字时（我的决定：可用宽度 < 24 列），省掉工作条。
+- 已结束的行不画工作条。
 
 ### 已结束
 
